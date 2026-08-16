@@ -60,7 +60,11 @@
 
   <div class="photo-frame">
     <div class="photo-glow" aria-hidden="true"></div>
-    <div id="photo" class="photo"></div>
+    <div id="photo" class="photo">
+      <video id="camera-video" playsinline muted autoplay></video>
+      <canvas id="camera-canvas" class="hidden"></canvas>
+      <span class="camera-tag">Camera Active</span>
+    </div>
     <p id="hero-halo" class="hero-halo">Halo</p>
   </div>
 
@@ -70,17 +74,10 @@
     <span class="hint" role="listitem" data-hint="peace"><span class="hint-glyph">✌️</span><span class="hint-label">Blur</span></span>
     <span class="hint" role="listitem" data-hint="palm"><span class="hint-glyph">🤚</span><span class="hint-label">Halo</span></span>
     <span class="hint" role="listitem" data-hint="ok"><span class="hint-glyph">👌</span><span class="hint-label">Play</span></span>
-    <span class="hint" role="listitem" data-hint="fist"><span class="hint-glyph">👊</span><span class="hint-label">Stop</span></span>
+    <span class="hint" role="listitem" data-hint="thumbsUp"><span class="hint-glyph">👍</span><span class="hint-label">Stop</span></span>
   </div>
 
   <p id="feedback" class="feedback" aria-live="polite"></p>
-
-  <!-- floating camera preview -->
-  <div id="camera-wrap" class="camera-wrap">
-    <video id="camera-video" playsinline muted></video>
-    <canvas id="camera-canvas"></canvas>
-    <span class="camera-tag">Camera Active</span>
-  </div>
 
   <button id="enable-sound-btn" class="btn btn-ghost hidden">Enable Sound</button>
 </section>

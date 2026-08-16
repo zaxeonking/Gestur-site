@@ -290,6 +290,37 @@ button {
   overflow: hidden;
 }
 
+.photo #camera-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1); /* mirror, feels natural like a mirror not a recording */
+}
+
+.photo #camera-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.photo .camera-tag {
+  position: absolute;
+  left: 14px;
+  bottom: 14px;
+  z-index: 2;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--paper);
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(4px);
+  padding: 5px 10px;
+  border-radius: 999px;
+}
+
 .photo::after {
   /* subtle vignette so the placeholder art reads as a photograph */
   content: "";
@@ -373,45 +404,6 @@ button {
 }
 .feedback.is-visible { opacity: 1; transform: translateY(0); }
 
-/* ---------------- Camera preview (floating, minor) ---------------- */
-.camera-wrap {
-  position: fixed;
-  right: max(14px, env(safe-area-inset-right));
-  bottom: max(14px, env(safe-area-inset-bottom));
-  width: 96px;
-  height: 128px;
-  border-radius: 14px;
-  overflow: hidden;
-  opacity: 0.55;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  box-shadow: 0 10px 30px -10px rgba(0,0,0,0.6);
-  transition: opacity 0.3s var(--ease);
-  z-index: 20;
-}
-.camera-wrap:hover { opacity: 0.9; }
-
-#camera-video, #camera-canvas {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  transform: scaleX(-1); /* mirror, feels natural */
-}
-
-.camera-tag {
-  position: absolute;
-  left: 6px;
-  bottom: 6px;
-  font-size: 8px;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: var(--paper);
-  background: rgba(0,0,0,0.45);
-  padding: 3px 6px;
-  border-radius: 999px;
-}
-
 #enable-sound-btn {
   position: fixed;
   bottom: max(18px, env(safe-area-inset-bottom));
@@ -425,7 +417,6 @@ button {
    ============================================================ */
 @media (max-width: 420px) {
   .gesture-hints { gap: 18px; }
-  .camera-wrap { width: 76px; height: 102px; }
 }
 
 @media (min-width: 900px) {

@@ -21,7 +21,7 @@ Atau `npx serve .`, atau deploy ke Netlify/Vercel/GitHub Pages.
 | ✌️ Peace (telunjuk + tengah terbuka) | Foto jadi blur (tanpa audio) |
 | 🤚 Open palm (5 jari terbuka) | Teks "Halo" muncul |
 | 👌 OK (jempol+telunjuk pinch, 3 jari lain terbuka) | Musik "Foto Kita Blur" mulai diputar (loop) |
-| 👊 Fist (semua jari terkepal) | Musik berhenti |
+| 👍 Thumbs up (hanya jempol terbuka, mengarah ke atas) | Musik berhenti |
 
 Setiap gesture punya cooldown/debounce (lihat `STABLE_FRAMES_NEEDED` dan `AUDIO_COOLDOWN_MS` di `script.js`) supaya tidak trigger berulang tiap frame.
 
@@ -57,3 +57,4 @@ assets/
 - Kamera & model baru diminta setelah user menekan **Start Experience** (menghindari block autoplay/permission oleh browser).
 - Deteksi jari pakai perbandingan jarak tip↔wrist vs pip↔wrist (bukan cuma sumbu-Y), jadi cukup tahan terhadap kemiringan tangan.
 - 👌 OK dideteksi dari jarak ujung jempol↔telunjuk yang kecil (pinch) relatif terhadap ukuran tangan, ditambah jari tengah/manis/kelingking harus terbuka (membedakan dari kepalan/fist).
+- 👍 Thumbs up dideteksi dari jempol yang lurus ke atas (posisi Y jempol jauh di atas pergelangan tangan) sementara 4 jari lain terlipat.

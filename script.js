@@ -29,7 +29,7 @@ const el = {
     peace: document.querySelector('[data-hint="peace"]'),
     palm: document.querySelector('[data-hint="palm"]'),
     ok: document.querySelector('[data-hint="ok"]'),
-    fist: document.querySelector('[data-hint="fist"]'),
+    thumbsUp: document.querySelector('[data-hint="thumbsUp"]'),
   },
   video: document.getElementById("camera-video"),
   canvas: document.getElementById("camera-canvas"),
@@ -46,7 +46,7 @@ const state = {
   rafId: null,
   muted: false,
   soundBlocked: false,
-  currentGesture: null, // 'peace' | 'palm' | 'ok' | 'fist' | null
+  currentGesture: null, // 'peace' | 'palm' | 'ok' | 'thumbsUp' | null
   gestureStableFrames: 0,
   lastFiredGesture: null, // gesture that last triggered an action (reset when gesture clears)
   isMusicPlaying: false,
@@ -131,9 +131,9 @@ function onOkDetected() {
   showFeedback("👌 Musik diputar");
 }
 
-function onFistDetected() {
+function onThumbsUpDetected() {
   stopMusic();
-  showFeedback("👊 Musik berhenti");
+  showFeedback("👍 Musik berhenti");
 }
 
 function onGestureCleared() {
@@ -155,7 +155,7 @@ function isExtended(landmarks, tipIdx, pipIdx, wristIdx = 0, margin = 1.12) {
   return dist(landmarks[tipIdx], wrist) > dist(landmarks[pipIdx], wrist) * margin;
 }
 
-// Classifies a single hand into 'peace' | 'palm' | 'ok' | 'fist' | null
+// Classifies a single hand into 'peace' | 'palm' | 'ok' | 'thumbsUp' | null
 function classifyHand(landmarks) {
   const thumb = isExtended(landmarks, 4, 2, 0, 1.05);
   const index = isExtended(landmarks, 8, 6);
@@ -168,8 +168,10 @@ function classifyHand(landmarks) {
   const isPinching = dist(landmarks[4], landmarks[8]) < handScale * 0.55;
   if (isPinching && middle && ring && pinky) return "ok";
 
-  // 👊 Fist: everything folded
-  if (!thumb && !index && !middle && !ring && !pinky) return "fist";
+  // 👍 Thumbs up: only the thumb extended, the other four fingers folded,
+  // and the thumb tip clearly above the wrist (pointing up, not sideways)
+  const thumbPointsUp = landmarks[4].y < landmarks[0].y - Math.abs(landmarks[4].x - landmarks[0].x) * 0.4;
+  if (thumb && !index && !middle && !ring && !pinky && thumbPointsUp) return "thumbsUp";
 
   // ✌️ Peace: index + middle only
   if (index && middle && !ring && !pinky) return "peace";
@@ -253,7 +255,7 @@ function handleGesture(gesture) {
     peace: "✌️ Peace detected",
     palm: "🤚 Palm detected",
     ok: "👌 OK detected",
-    fist: "👊 Fist detected",
+    thumbsUp: "👍 Thumbs up detected",
   };
   el.statusText.textContent = labels[gesture] || "Reading gesture…";
   setActiveHint(gesture);
@@ -266,7 +268,7 @@ function handleGesture(gesture) {
     if (gesture === "peace") onPeaceDetected();
     else if (gesture === "palm") onPalmDetected();
     else if (gesture === "ok") onOkDetected();
-    else if (gesture === "fist") onFistDetected();
+    else if (gesture === "thumbsUp") onThumbsUpDetected();
   }
 }
 
