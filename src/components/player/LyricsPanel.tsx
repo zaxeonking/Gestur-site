@@ -4,9 +4,6 @@ import { useAudioPlayer, usePlaybackTime } from '../../hooks/useAudioPlayer'
 import type { LyricsState } from '../../hooks/useLyrics'
 import { findActiveLine } from '../../utils/lrc'
 
-/** Setelah pengguna menggulir sendiri, sorotan otomatis tidak menarik layar selama jeda ini. */
-const MANUAL_SCROLL_PAUSE_MS = 4000
-
 interface LyricsPanelProps {
   state: LyricsState
   onRetry: () => void
@@ -70,7 +67,6 @@ function SyncedLyrics({ lines, lyricsDuration }: { lines: { time: number; text: 
   const { currentTime, seekable, duration: audioDuration } = usePlaybackTime()
   const { seekTo } = useAudioPlayer()
   const containerRef = useRef<HTMLDivElement>(null)
-  const lastManualScroll = useRef(0)
   const diff = lyricsDuration !== null && audioDuration !== null ? Math.abs(lyricsDuration - audioDuration) : 0
   const timingUnusable = diff > TIMING_UNUSABLE_S
   const active = useMemo(() => findActiveLine(lines, currentTime + 0.1), [lines, currentTime])
@@ -78,7 +74,6 @@ function SyncedLyrics({ lines, lyricsDuration }: { lines: { time: number; text: 
   useEffect(() => {
     const container = containerRef.current
     if (!container || active < 0 || timingUnusable) return
-    if (Date.now() - lastManualScroll.current < MANUAL_SCROLL_PAUSE_MS) return
     const node = container.querySelector<HTMLElement>(`[data-line="${active}"]`)
     if (!node) return
     const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -87,10 +82,6 @@ function SyncedLyrics({ lines, lyricsDuration }: { lines: { time: number; text: 
       behavior: reduce ? 'auto' : 'smooth',
     })
   }, [active, timingUnusable])
-
-  const markManual = () => {
-    lastManualScroll.current = Date.now()
-  }
 
   // Versi audio terlalu beda dari versi lirik: waktunya pasti meleset, jadi tampilkan teks biasa.
   if (timingUnusable) {
@@ -114,8 +105,6 @@ function SyncedLyrics({ lines, lyricsDuration }: { lines: { time: number; text: 
     <div className="flex h-full flex-col">
       <div
         ref={containerRef}
-        onWheel={markManual}
-        onTouchMove={markManual}
         style={FADE_MASK}
         className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-[18dvh] text-center [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
