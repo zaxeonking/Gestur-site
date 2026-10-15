@@ -71,7 +71,7 @@ function asRecord(value: unknown): LrclibRecord | null {
   }
 }
 
-async function getJson(path: string, params: Record<string, string>, signal: AbortSignal): Promise<unknown | null> {
+async function getJson(base: string, path: string, params: Record<string, string>, signal: AbortSignal): Promise<unknown | null> {
   const controller = new AbortController()
   let timedOut = false
   const timer = setTimeout(() => {
@@ -83,7 +83,7 @@ async function getJson(path: string, params: Record<string, string>, signal: Abo
   else signal.addEventListener('abort', onAbort, { once: true })
 
   try {
-    const url = `${BASE_URL}${path}?${new URLSearchParams(params).toString()}`
+    const url = `${base}${path}?${new URLSearchParams(params).toString()}`
     const response = await fetch(url, { signal: controller.signal, headers: { Accept: 'application/json' } })
     if (response.status === 404) return null
     if (!response.ok) throw new LyricsError('bad_response', `Server lirik membalas dengan status ${response.status}.`)
@@ -167,31 +167,40 @@ function rankCandidates(records: LrclibRecord[], durationS: number | null, title
   return [...candidates].sort((a, b) => score(a) - score(b))
 }
 
-/**
- * Mencari lirik lagu: pencocokan persis (`/get`) dan dua pencarian longgar (`/search`) dijalankan bersamaan,
- * semua versi bertanda waktu dikumpulkan, lalu versi terdekat durasinya dengan lagu dipakai. Versi lain ikut
- * dikembalikan supaya pemutar bisa memilih ulang memakai durasi audio yang benar-benar terdengar.
- */
-export async function fetchLyrics(track: PlaylistTrack, options: { signal: AbortSignal }): Promise<LyricsResult> {
-  const { signal } = options
-  const durationS = parseDuration(track.duration)
-  const artist = primaryArtist(track.artists)
-  const title = cleanTitle(track.title) || track.title
+/* ------------------------------------------------------------------ */
+/* Sumber lirik: LRCLIB, NetEase (lewat proxy di web), lyrics.ovh        */
+/* ------------------------------------------------------------------ */
 
+const NETEASE_DIRECT = 'https://music.163.com'
+const LYRICS_OVH = 'https://api.lyrics.ovh/v1'
+
+/** Web: lewat proxy /netease (CORS). APK Capacitor: langsung (CapacitorHttp tidak kena CORS). */
+function neteaseBase(): string {
+  const configured = import.meta.env?.VITE_LYRICS_NETEASE_BASE?.trim()
+  if (configured) return configured.replace(/\/+$/, '')
+  const cap = (typeof window !== 'undefined' ? (window as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor : undefined)
+  return cap?.isNativePlatform?.() ? NETEASE_DIRECT : '/netease'
+}
+
+/** Baris kredit seperti "作词 : ..." / "Lyrics by: ..." bukan lirik; dibuang supaya tidak ikut disorot. */
+const CREDIT_LINE = /^\s*\[[^\]]+\]\s*(?:作词|作曲|编曲|制作人?|混音|母带|监制|词|曲|lyrics?\s+by|music\s+by|composed?\s+by|produced?\s+by|arranged?\s+by)\s*[:：]/i
+
+function stripCredits(lrc: string): string {
+  return lrc
+    .split(/\r?\n/)
+    .filter((row) => !CREDIT_LINE.test(row))
+    .join('\n')
+}
+
+async function lrclibRecords(track: PlaylistTrack, title: string, artist: string, durationS: number | null, signal: AbortSignal): Promise<LrclibRecord[]> {
   const exactParams: Record<string, string> = { track_name: track.title, artist_name: track.artists }
   if (track.album) exactParams.album_name = track.album
   if (durationS) exactParams.duration = String(Math.round(durationS))
-
-  const requests: Array<Promise<unknown | null>> = [
-    getJson('/get', exactParams, signal),
-    getJson('/search', artist ? { track_name: title, artist_name: artist } : { track_name: title }, signal),
-    getJson('/search', { q: `${title} ${artist}`.trim() }, signal),
-  ]
-  const settled = await Promise.allSettled(requests)
-  const failures = settled.filter((r): r is PromiseRejectedResult => r.status === 'rejected')
-  const aborted = failures.find((f) => f.reason instanceof LyricsError && f.reason.code === 'aborted')
-  if (aborted) throw aborted.reason
-
+  const settled = await Promise.allSettled([
+    getJson(BASE_URL, '/get', exactParams, signal),
+    getJson(BASE_URL, '/search', artist ? { track_name: title, artist_name: artist } : { track_name: title }, signal),
+    getJson(BASE_URL, '/search', { q: `${title} ${artist}`.trim() }, signal),
+  ])
   const records: LrclibRecord[] = []
   const exact = settled[0].status === 'fulfilled' ? asRecord(settled[0].value) : null
   if (exact) records.push(exact)
@@ -202,13 +211,130 @@ export async function fetchLyrics(track: PlaylistTrack, options: { signal: Abort
       if (record) records.push(record)
     }
   }
+  const failed = settled.find((r): r is PromiseRejectedResult => r.status === 'rejected')
+  if (failed && records.length === 0) throw failed.reason
+  return records
+}
+
+interface NeteaseSong {
+  id: number
+  name: string
+  artist: string
+  duration: number | null
+}
+
+function parseNeteaseSongs(body: unknown): NeteaseSong[] {
+  if (typeof body !== 'object' || body === null) return []
+  const result = (body as { result?: { songs?: unknown } }).result
+  if (!result || !Array.isArray(result.songs)) return []
+  const songs: NeteaseSong[] = []
+  for (const raw of result.songs) {
+    if (typeof raw !== 'object' || raw === null) continue
+    const item = raw as Record<string, unknown>
+    if (typeof item.id !== 'number' || typeof item.name !== 'string') continue
+    const people = Array.isArray(item.artists) ? item.artists : Array.isArray(item.ar) ? item.ar : []
+    const artist = people
+      .map((p) => (typeof p === 'object' && p !== null && typeof (p as { name?: unknown }).name === 'string' ? (p as { name: string }).name : ''))
+      .filter(Boolean)
+      .join(', ')
+    const ms = typeof item.duration === 'number' ? item.duration : typeof item.dt === 'number' ? item.dt : null
+    songs.push({ id: item.id, name: item.name, artist, duration: ms !== null ? ms / 1000 : null })
+  }
+  return songs
+}
+
+/** NetEase Cloud Music: cari lagu, ambil lirik bertanda waktu untuk beberapa hasil teratas yang cocok. */
+async function neteaseRecords(title: string, artist: string, signal: AbortSignal): Promise<LrclibRecord[]> {
+  const base = neteaseBase()
+  const search = await getJson(base, '/api/search/get', { s: `${title} ${artist}`.trim(), type: '1', limit: '8', offset: '0' }, signal)
+  const songs = parseNeteaseSongs(search)
+    .filter((song) => matchesTrack({ trackName: song.name, artistName: song.artist }, title, artist))
+    .slice(0, 3)
+  const settled = await Promise.allSettled(
+    songs.map((song) => getJson(base, '/api/song/lyric', { id: String(song.id), lv: '-1', kv: '-1', tv: '-1' }, signal)),
+  )
+  const records: LrclibRecord[] = []
+  settled.forEach((item, i) => {
+    if (item.status !== 'fulfilled' || typeof item.value !== 'object' || item.value === null) return
+    const lrc = (item.value as { lrc?: { lyric?: unknown } }).lrc?.lyric
+    if (typeof lrc !== 'string' || !/\[\d{1,3}:\d{2}/.test(lrc)) return
+    const song = songs[i]
+    records.push({
+      trackName: song.name,
+      artistName: song.artist,
+      duration: song.duration,
+      instrumental: false,
+      plainLyrics: null,
+      syncedLyrics: stripCredits(lrc),
+    })
+  })
+  const failed = settled.find((r): r is PromiseRejectedResult => r.status === 'rejected')
+  if (failed && records.length === 0 && songs.length > 0) throw failed.reason
+  return records
+}
+
+/** lyrics.ovh: hanya teks biasa (tanpa waktu), dipakai sebagai cadangan terakhir. */
+async function ovhRecords(title: string, artist: string, signal: AbortSignal): Promise<LrclibRecord[]> {
+  if (!artist) return []
+  const body = await getJson(LYRICS_OVH, `/${encodeURIComponent(artist)}/${encodeURIComponent(title)}`, {}, signal)
+  const lyrics = typeof body === 'object' && body !== null ? (body as { lyrics?: unknown }).lyrics : null
+  if (typeof lyrics !== 'string' || !lyrics.trim()) return []
+  return [{ trackName: title, artistName: artist, duration: null, instrumental: false, plainLyrics: lyrics.trim(), syncedLyrics: null }]
+}
+
+/** Setelah ada versi bertanda waktu, sumber lain masih ditunggu sebentar supaya bisa dibandingkan. */
+const SOURCE_GRACE_MS = 1500
+
+/**
+ * Mencari lirik dari BEBERAPA sumber sekaligus (LRCLIB, NetEase, lyrics.ovh). Semua versi bertanda waktu
+ * dikumpulkan jadi satu daftar; yang durasinya paling dekat dengan lagu dipakai, sisanya dikembalikan
+ * sebagai `alternatives` supaya pemutar bisa memilih ulang memakai durasi audio yang benar-benar terdengar.
+ * Sumber yang gagal/diblokir tidak menggagalkan yang lain; galat baru dilaporkan jika SEMUA sumber gagal.
+ */
+export async function fetchLyrics(track: PlaylistTrack, options: { signal: AbortSignal }): Promise<LyricsResult> {
+  const { signal } = options
+  const durationS = parseDuration(track.duration)
+  const artist = primaryArtist(track.artists)
+  const title = cleanTitle(track.title) || track.title
+
+  const jobs: Array<Promise<LrclibRecord[]>> = [
+    lrclibRecords(track, title, artist, durationS, signal),
+    neteaseRecords(title, artist, signal),
+    ovhRecords(title, artist, signal),
+  ]
+
+  const records: LrclibRecord[] = []
+  const errors: unknown[] = []
+  await new Promise<void>((resolve) => {
+    let pending = jobs.length
+    let grace: ReturnType<typeof setTimeout> | undefined
+    const onSettled = () => {
+      pending -= 1
+      if (pending === 0) {
+        clearTimeout(grace)
+        resolve()
+      }
+    }
+    for (const job of jobs) {
+      job
+        .then((found) => {
+          records.push(...found)
+          if (!grace && found.some((r) => r.syncedLyrics)) grace = setTimeout(resolve, SOURCE_GRACE_MS)
+        })
+        .catch((error: unknown) => errors.push(error))
+        .finally(onSettled)
+    }
+  })
+
+  const aborted = errors.find((e) => e instanceof LyricsError && e.code === 'aborted')
+  if (aborted || signal.aborted) throw aborted ?? new LyricsError('aborted', 'Permintaan lirik dibatalkan.')
 
   const ranked = rankCandidates(records, durationS, title, artist)
   if (ranked.length > 0) {
     const [best, ...rest] = ranked
     return toResult(best, rest)
   }
-  // Tidak ada hasil sama sekali DAN ada permintaan yang gagal: laporkan galatnya, jangan bilang "tidak ditemukan".
-  if (failures.length > 0 && records.length === 0) throw failures[0].reason
+  // Tidak ada hasil DAN semua sumber gagal: laporkan galatnya, jangan bilang "tidak ditemukan".
+  if (errors.length === jobs.length) throw errors[0]
   return { kind: 'none' }
 }

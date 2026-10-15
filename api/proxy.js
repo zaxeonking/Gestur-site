@@ -1,9 +1,16 @@
 // Proxy server-side ke API pihak ketiga (menghindari CORS di browser).
 // vercel.json: /nexa/<path>  -> /api/proxy?upstream=nexa&path=<path>
 //              /kyzz/<path>  -> /api/proxy?upstream=kyzz&path=<path>
+//              /netease/<path> -> /api/proxy?upstream=netease&path=<path>
 const UPSTREAMS = {
   nexa: { base: 'https://api.nexadev.my.id', allowed: ['api/spotifypl', 'api/spotifyplay', 'api/spotify'] },
   kyzz: { base: 'https://app.kyzznekoo.my.id', allowed: ['api/download/spotify'] },
+  // Lirik NetEase (bertanda waktu). Butuh header Referer agar tidak ditolak.
+  netease: {
+    base: 'https://music.163.com',
+    allowed: ['api/search/get', 'api/song/lyric'],
+    headers: { Referer: 'https://music.163.com/' },
+  },
 }
 const TIMEOUT_MS = 25000
 
@@ -28,6 +35,7 @@ export default async function handler(req, res) {
       headers: {
         Accept: 'application/json',
         'User-Agent': 'Mozilla/5.0 (compatible; MusicVerse/1.0)',
+        ...(upstream.headers || {}),
       },
       signal: controller.signal,
     })

@@ -14,6 +14,13 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/nexa/, ''),
       },
+      // Lirik NetEase (dipakai sebagai sumber lirik tambahan).
+      '/netease': {
+        target: 'https://music.163.com',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/netease/, ''),
+        headers: { Referer: 'https://music.163.com/' },
+      },
       // API download berbasis tautan lagu (ikut dipakai otomatis saat VITE_API_BASE_URL=/nexa).
       '/kyzz': {
         target: 'https://app.kyzznekoo.my.id',
