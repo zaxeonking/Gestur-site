@@ -197,7 +197,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
   const { playlist, status: playlistStatus, fromCache } = usePlaylist()
   const lastAutoSavedRef = useRef<PlaylistDetail | null>(null)
   useEffect(() => {
-    if (!playlist || playlistStatus !== 'success' || fromCache) return
+    if (!playlist || playlistStatus !== 'success' || fromCache || playlist.source === 'search') return
     if (lastAutoSavedRef.current === playlist) return
     lastAutoSavedRef.current = playlist
     savePlaylist(playlist)

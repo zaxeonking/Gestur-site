@@ -349,10 +349,9 @@ export function buildPlaybackEndpoint(songTitle: string): string {
 }
 
 /**
- * Meminta info playback untuk satu judul lagu. Tidak ada cache di sisi aplikasi:
- * setiap pemanggilan mengambil `mp3_url` terbaru karena URL bisa bersifat sementara.
+ * Meminta info playback untuk satu judul lagu ke server (selalu permintaan baru).
  */
-export async function fetchPlaybackInfo(
+async function requestPlayback(
   songTitle: string,
   options: FetchPlaylistOptions = {},
 ): Promise<PlaybackInfo> {
@@ -404,4 +403,49 @@ export function describeApiError(error: unknown): string {
   const origin = typeof window !== 'undefined' ? window.location.origin : ''
   if (origin) lines.push(`origin app: ${origin}`)
   return lines.join('\n')
+}
+
+/* ------------------------------------------------------------------ */
+/* Hand-off pencarian → pemutaran                                      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Hasil pencarian judul sudah memuat `mp3_url`. Agar menekan Play tidak memanggil endpoint yang
+ * lambat itu untuk kedua kalinya, hasilnya disimpan sebentar dan dipakai SEKALI oleh pemutaran
+ * berikutnya untuk judul yang sama. Setelah itu (atau lewat 2 menit) selalu ambil `mp3_url` baru,
+ * karena URL bisa bersifat sementara.
+ */
+const HANDOFF_TTL_MS = 2 * 60_000
+const handoff = new Map<string, { info: PlaybackInfo; at: number }>()
+
+function handoffKey(title: string): string {
+  return title.trim().toLowerCase()
+}
+
+function takeHandoff(title: string): PlaybackInfo | null {
+  const key = handoffKey(title)
+  const entry = handoff.get(key)
+  if (!entry) return null
+  handoff.delete(key)
+  return Date.now() - entry.at <= HANDOFF_TTL_MS ? entry.info : null
+}
+
+/** Mencari lagu lewat judul (endpoint play) dan menyiapkan hand-off untuk pemutaran. */
+export async function searchTrackByTitle(
+  query: string,
+  options: FetchPlaylistOptions = {},
+): Promise<PlaybackInfo> {
+  const info = await requestPlayback(query, options)
+  const now = Date.now()
+  for (const [key, entry] of handoff) if (now - entry.at > HANDOFF_TTL_MS) handoff.delete(key)
+  handoff.set(handoffKey(info.title || query), { info, at: Date.now() })
+  return info
+}
+
+/** Info playback untuk pemutaran: memakai hasil pencarian yang baru saja dibuat, jika ada. */
+export async function fetchPlaybackInfo(
+  songTitle: string,
+  options: FetchPlaylistOptions = {},
+): Promise<PlaybackInfo> {
+  return takeHandoff(songTitle) ?? requestPlayback(songTitle, options)
 }

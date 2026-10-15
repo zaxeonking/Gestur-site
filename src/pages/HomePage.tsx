@@ -16,7 +16,7 @@ export default function HomePage() {
             {greeting}
           </h1>
           <p className="mt-1 text-ink-muted">
-            Tempel tautan playlist Spotify untuk melihat isinya.
+            Cari lagu lewat judul, atau tempel tautan playlist Spotify.
           </p>
         </div>
         <PlaylistImportForm />

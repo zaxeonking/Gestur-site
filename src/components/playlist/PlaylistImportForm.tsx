@@ -1,7 +1,12 @@
 import { Link2, Loader2, X } from 'lucide-react'
-import { useId, useState, type FormEvent } from 'react'
+import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
 import { usePlaylist } from '../../context/PlaylistContext'
-import { validateSpotifyPlaylistUrl } from '../../utils/spotifyUrl'
+import { classifyImportInput, getLiveLoadTarget, validateSpotifyPlaylistUrl } from '../../utils/spotifyUrl'
+
+/** Jeda setelah berhenti mengetik sebelum pencarian otomatis jalan. */
+const LIVE_SEARCH_DEBOUNCE_MS = 700
+
+const sameQuery = (a: string, b: string) => a.toLowerCase().replace(/\s+/g, ' ') === b.toLowerCase().replace(/\s+/g, ' ')
 
 export default function PlaylistImportForm() {
   const { status, isLive, loadPlaylist, reset } = usePlaylist()
@@ -10,17 +15,41 @@ export default function PlaylistImportForm() {
   const inputId = useId()
   const errorId = `${inputId}-error`
   const loading = status === 'loading'
+  const isSearch = classifyImportInput(value).kind === 'search'
+  /** Teks terakhir yang sudah dimuat (otomatis atau lewat tombol), agar tidak diulang. */
+  const lastLoadedRef = useRef<string | null>(null)
+
+  // Pencarian langsung: muat otomatis setelah pengguna berhenti mengetik.
+  useEffect(() => {
+    const target = getLiveLoadTarget(value)
+    if (!target) return
+    const timer = setTimeout(() => {
+      if (lastLoadedRef.current !== null && sameQuery(lastLoadedRef.current, target)) return
+      lastLoadedRef.current = target
+      setValidationError(null)
+      void loadPlaylist(target)
+    }, LIVE_SEARCH_DEBOUNCE_MS)
+    return () => clearTimeout(timer)
+  }, [value, loadPlaylist])
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (loading) return
 
-    const result = validateSpotifyPlaylistUrl(value)
-    if (!result.valid) {
-      setValidationError(result.message)
+    const input = classifyImportInput(value)
+    if (input.kind === 'empty') {
+      setValidationError('Ketik judul lagu atau tempel tautan playlist Spotify.')
       return
     }
+    if (input.kind === 'playlist') {
+      const result = validateSpotifyPlaylistUrl(value)
+      if (!result.valid) {
+        setValidationError(result.message)
+        return
+      }
+    }
     setValidationError(null)
+    lastLoadedRef.current = value.trim()
     await loadPlaylist(value)
   }
 
@@ -28,12 +57,13 @@ export default function PlaylistImportForm() {
     reset()
     setValue('')
     setValidationError(null)
+    lastLoadedRef.current = null
   }
 
   return (
     <form onSubmit={handleSubmit} noValidate aria-busy={loading} className="space-y-2" aria-label="Impor playlist Spotify">
       <label htmlFor={inputId} className="sr-only">
-        Tautan playlist Spotify
+        Judul lagu atau tautan playlist Spotify
       </label>
       <div className="flex flex-col gap-2 sm:flex-row">
         <div className="relative flex-1">
@@ -43,14 +73,15 @@ export default function PlaylistImportForm() {
           />
           <input
             id={inputId}
-            type="url"
-            inputMode="url"
+            type="text"
+            inputMode="search"
+            enterKeyHint="search"
             value={value}
             onChange={(e) => {
               setValue(e.target.value)
               if (validationError) setValidationError(null)
             }}
-            placeholder="Tempel tautan playlist Spotify"
+            placeholder="Judul lagu atau tautan playlist Spotify"
             autoComplete="off"
             spellCheck={false}
             aria-invalid={validationError ? true : undefined}
@@ -69,7 +100,7 @@ export default function PlaylistImportForm() {
             {loading && (
               <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
             )}
-            {loading ? 'Memuat…' : 'Muat playlist'}
+            {loading ? 'Memuat…' : isSearch ? 'Cari lagu' : 'Muat playlist'}
           </button>
           {isLive && (
             <button

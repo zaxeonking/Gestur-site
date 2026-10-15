@@ -34,6 +34,11 @@ export interface PlaylistDetail {
   cover: string
   author?: string
   tracks: PlaylistTrack[]
+  /**
+   * 'search' = hasil pencarian judul (bukan playlist Spotify): `url` berisi kata kunci, tidak disimpan
+   * ke penyimpanan perangkat dan tidak masuk Koleksi otomatis.
+   */
+  source?: 'search'
 }
 
 /**

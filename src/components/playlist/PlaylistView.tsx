@@ -1,6 +1,7 @@
 import { AlertCircle, ListMusic, RotateCw } from 'lucide-react'
 import { usePlaylist } from '../../context/PlaylistContext'
 import { useAudioPlayer } from '../../hooks/useAudioPlayer'
+import { classifyImportInput } from '../../utils/spotifyUrl'
 import { getRowActivity } from '../../utils/playerStatus'
 import EmptyState from '../ui/EmptyState'
 import PlaylistHeader from './PlaylistHeader'
@@ -35,7 +36,8 @@ function ErrorDetail({ detail }: { detail?: string | null }) {
 
 /** Menampilkan playlist dari API: kosong, memuat, gagal, atau daftar lagu. */
 export default function PlaylistView() {
-  const { status, playlist, error, errorDetail, fromCache, canRetry, loadPlaylist } = usePlaylist()
+  const { status, playlist, error, errorDetail, fromCache, canRetry, loadPlaylist, requestedUrl } = usePlaylist()
+  const wasSearch = requestedUrl !== null && classifyImportInput(requestedUrl).kind === 'search'
   const player = useAudioPlayer()
 
   if (status === 'loading') return <PlaylistSkeleton />
@@ -46,7 +48,7 @@ export default function PlaylistView() {
         <EmptyState
           icon={AlertCircle}
           tone="error"
-          title="Playlist gagal dimuat"
+          title={wasSearch ? 'Lagu tidak ditemukan' : 'Playlist gagal dimuat'}
           description={error ?? 'Terjadi kesalahan. Coba lagi.'}
           action={
             <div className="flex flex-col items-center gap-4">
@@ -60,8 +62,8 @@ export default function PlaylistView() {
     return (
       <EmptyState
         icon={ListMusic}
-        title="Belum ada playlist"
-        description="Tempel tautan playlist Spotify di kolom atas, lalu pilih Muat playlist. Playlist harus bersifat publik."
+        title="Belum ada lagu atau playlist"
+        description="Ketik judul lagu di kolom atas, atau tempel tautan playlist Spotify (playlist harus bersifat publik)."
       />
     )
   }

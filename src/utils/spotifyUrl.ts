@@ -109,3 +109,41 @@ export function resolveSpotifyTrackUrl(...candidates: Array<string | undefined |
   }
   return undefined
 }
+
+export type ImportInput =
+  | { kind: 'empty' }
+  /** Terlihat seperti tautan: divalidasi sebagai tautan playlist Spotify. */
+  | { kind: 'playlist' }
+  /** Bukan tautan: diperlakukan sebagai judul lagu. */
+  | { kind: 'search'; query: string }
+
+const MAX_QUERY_LENGTH = 200
+
+/**
+ * Menentukan apakah isi kolom impor adalah tautan playlist atau judul lagu.
+ * Tautan = diawali skema (https://), `spotify:`, atau `open.spotify.com/`. Selain itu = judul.
+ */
+export function classifyImportInput(input: string): ImportInput {
+  const value = input.trim()
+  if (!value) return { kind: 'empty' }
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(value) || /^spotify:/i.test(value) || /^(www\.)?open\.spotify\.com\//i.test(value)) {
+    return { kind: 'playlist' }
+  }
+  return { kind: 'search', query: value.slice(0, MAX_QUERY_LENGTH) }
+}
+
+/** Jumlah huruf minimum sebelum judul dicari otomatis (mengurangi permintaan ke API yang lambat). */
+export const LIVE_SEARCH_MIN_LENGTH = 3
+
+/**
+ * Teks yang boleh dimuat otomatis (tanpa menekan tombol) untuk isi kolom saat ini, atau null.
+ * - judul: minimal LIVE_SEARCH_MIN_LENGTH karakter
+ * - tautan: hanya jika sudah menjadi tautan playlist Spotify yang valid (tautan setengah jadi
+ *   tidak memunculkan pesan galat saat masih diketik)
+ */
+export function getLiveLoadTarget(input: string): string | null {
+  const parsed = classifyImportInput(input)
+  if (parsed.kind === 'search') return parsed.query.length >= LIVE_SEARCH_MIN_LENGTH ? parsed.query : null
+  if (parsed.kind === 'playlist') return validateSpotifyPlaylistUrl(input).valid ? input.trim() : null
+  return null
+}
