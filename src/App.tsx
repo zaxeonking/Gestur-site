@@ -2,7 +2,9 @@ import { createBrowserRouter, RouterProvider } from 'react-router-dom'
 import AppShell from './components/layout/AppShell'
 import { AudioPlayerProvider } from './context/AudioPlayerContext'
 import { LibraryProvider } from './context/LibraryContext'
+import { PlayerUiProvider } from './context/PlayerUiContext'
 import { PlaylistProvider } from './context/PlaylistContext'
+import { TrackMenuProvider } from './context/TrackMenuContext'
 import HomePage from './pages/HomePage'
 import LibraryPage from './pages/LibraryPage'
 import SearchPage from './pages/SearchPage'
@@ -24,7 +26,11 @@ export default function App() {
     <PlaylistProvider>
       <AudioPlayerProvider>
         <LibraryProvider>
-          <RouterProvider router={router} />
+          <PlayerUiProvider>
+            <TrackMenuProvider>
+              <RouterProvider router={router} />
+            </TrackMenuProvider>
+          </PlayerUiProvider>
         </LibraryProvider>
       </AudioPlayerProvider>
     </PlaylistProvider>

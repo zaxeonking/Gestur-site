@@ -86,6 +86,16 @@ export interface PlaybackTime {
   seekable: boolean
 }
 
+/**
+ * Hasil menambah lagu ke antrean.
+ * started   belum ada yang diputar, jadi lagu ini langsung diputar (antreannya dimulai dari lagu ini)
+ * added     masuk ke daftar "Berikutnya"
+ * moved     sudah ada di daftar "Berikutnya", dipindah ke depan
+ * duplicate sudah ada di daftar "Berikutnya", tidak diubah
+ * current   lagu ini sedang diputar
+ */
+export type QueueAddResult = 'started' | 'added' | 'moved' | 'duplicate' | 'current'
+
 export interface AudioPlayerActions {
   /**
    * Selalu meminta URL baru ke endpoint play lalu memutar dari awal. Queue disesuaikan dengan
@@ -114,6 +124,10 @@ export interface AudioPlayerActions {
   moveUpcoming: (from: number, to: number) => void
   /** Menghapus lagu di posisi `position` pada daftar "Berikutnya" dari antrean. */
   removeUpcoming: (position: number) => void
+  /** Menambahkan lagu (dari mana pun, termasuk di luar playlist) ke akhir daftar "Berikutnya". */
+  addToQueue: (track: PlaylistTrack) => QueueAddResult
+  /** Menaruh lagu tepat setelah lagu yang sedang diputar. */
+  playNextInQueue: (track: PlaylistTrack) => QueueAddResult
   togglePlayPause: () => void
   /** Memutar lagu berikutnya di queue. Tidak melakukan apa pun jika sudah di akhir. */
   playNext: () => void

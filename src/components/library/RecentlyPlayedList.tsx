@@ -1,11 +1,13 @@
 import { Loader2, Pause, Play } from 'lucide-react'
 import { memo, useMemo } from 'react'
+import { usePlayerUiActions } from '../../context/PlayerUiContext'
+import { useTrackMenu } from '../../context/TrackMenuContext'
+import { useLongPress } from '../../hooks/useLongPress'
 import type { RecentPlay } from '../../types/library'
 import type { RowActivity } from '../../types/player'
 import { fallbackCover } from '../../utils/fallbackCover'
 import { formatRelativeTime } from '../../utils/formatRelativeTime'
 import { recentKey } from '../../utils/libraryStorage'
-import { extractTrackId } from '../../utils/spotifyUrl'
 import CoverArt from '../ui/CoverArt'
 
 /** Kolom bersama baris; pola yang sama dengan daftar lagu di playlist. */
@@ -23,9 +25,11 @@ interface RecentRowProps {
 
 const RecentRow = memo(function RecentRow({ entry, activity, onPlay }: RecentRowProps) {
   const { track } = entry
+  const { openTrackMenu } = useTrackMenu()
+  const { openFullPlayer } = usePlayerUiActions()
+  const longPress = useLongPress(() => openTrackMenu(track))
   const fallback = useMemo(() => fallbackCover(`${track.title}${track.album}`), [track.title, track.album])
   const time = formatRelativeTime(entry.playedAt)
-  const href = extractTrackId(track.url) ? track.url : undefined
   const highlighted = activity !== 'none'
   const Icon = activity === 'playing' ? Pause : activity === 'loading' ? Loader2 : Play
   const by = track.artists ? ` oleh ${track.artists}` : ''
@@ -41,31 +45,32 @@ const RecentRow = memo(function RecentRow({ entry, activity, onPlay }: RecentRow
             : `Putar ${track.title}${by}`
 
   return (
-    <li className={`grid ${RECENT_GRID} rounded-md px-2 py-2 transition-colors hover:bg-card focus-within:bg-card active:bg-raised`}>
+    <li
+      onClick={() => {
+        // Ketuk biasa: putar lagu (kecuali sudah aktif) lalu buka pemutar penuh.
+        if (activity === 'none' || activity === 'error' || activity === 'ended') onPlay(entry)
+        openFullPlayer()
+      }}
+      {...longPress}
+      className={`grid ${RECENT_GRID} cursor-pointer select-none rounded-md px-2 py-2 transition-colors [-webkit-touch-callout:none] hover:bg-card focus-within:bg-card active:bg-raised`}
+    >
       <CoverArt cover={fallback} src={track.cover} />
 
-      <div className="min-w-0">
+      <button
+        type="button"
+        aria-label={`Buka pemutar: ${track.title}${by}`}
+        aria-haspopup="dialog"
+        className="min-w-0 rounded-sm text-left focus-ring"
+      >
         <p title={track.title} className={`truncate text-base font-medium ${highlighted ? 'text-accent' : 'text-ink'}`}>
-          {href ? (
-            <a
-              href={href}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="rounded-sm hover:underline focus-ring"
-            >
-              {track.title}
-              <span className="sr-only"> (buka di Spotify)</span>
-            </a>
-          ) : (
-            track.title
-          )}
+          {track.title}
         </p>
         <p className="truncate text-sm text-ink-muted">
           {track.artists}
           {time && <span className="sm:hidden"> · {time}</span>}
           {activity === 'error' && <span className="text-danger"> · Gagal diputar</span>}
         </p>
-      </div>
+      </button>
 
       <p className="hidden truncate text-sm text-ink-muted md:block">
         {entry.playlistTitle ? `Dari ${entry.playlistTitle}` : ''}
@@ -74,7 +79,10 @@ const RecentRow = memo(function RecentRow({ entry, activity, onPlay }: RecentRow
 
       <button
         type="button"
-        onClick={() => onPlay(entry)}
+        onClick={(event) => {
+          event.stopPropagation()
+          onPlay(entry)
+        }}
         aria-label={label}
         aria-busy={activity === 'loading'}
         className={`flex h-11 w-11 items-center justify-center justify-self-end rounded-full transition-colors hover:bg-white/10 active:bg-white/15 focus-ring ${

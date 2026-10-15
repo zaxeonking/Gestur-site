@@ -1,9 +1,11 @@
 import { Loader2, Pause, Play } from 'lucide-react'
 import { memo, useMemo } from 'react'
+import { usePlayerUiActions } from '../../context/PlayerUiContext'
+import { useTrackMenu } from '../../context/TrackMenuContext'
+import { useLongPress } from '../../hooks/useLongPress'
 import type { RowActivity } from '../../types/player'
 import type { PlaylistTrack, PlayTrackHandler } from '../../types/spotify'
 import { fallbackCover } from '../../utils/fallbackCover'
-import { extractTrackId } from '../../utils/spotifyUrl'
 import CoverArt from '../ui/CoverArt'
 
 /**
@@ -30,8 +32,9 @@ interface TrackRowProps {
 
 function TrackRow({ track, index, selected, activity = 'none', onSelect, onPlay }: TrackRowProps) {
   const fallback = useMemo(() => fallbackCover(`${track.title}${track.album}`), [track.title, track.album])
-  // Judul menjadi tautan hanya untuk URL lagu Spotify yang valid.
-  const href = extractTrackId(track.url) ? track.url : undefined
+  const { openTrackMenu } = useTrackMenu()
+  const { openFullPlayer } = usePlayerUiActions()
+  const longPress = useLongPress(() => openTrackMenu(track))
   const number = index + 1
   const isCurrent = activity !== 'none'
   const highlighted = selected || isCurrent
@@ -51,8 +54,14 @@ function TrackRow({ track, index, selected, activity = 'none', onSelect, onPlay 
   return (
     <li
       aria-current={selected ? 'true' : undefined}
-      onClick={() => onSelect(track.id)}
-      className={`grid ${TRACK_GRID} rounded-md px-2 py-2 transition-colors ${
+      onClick={() => {
+        onSelect(track.id)
+        // Ketuk biasa: putar lagu (kecuali sudah aktif) lalu buka pemutar penuh.
+        if (activity === 'none' || activity === 'error' || activity === 'ended') onPlay(track, index)
+        openFullPlayer()
+      }}
+      {...longPress}
+      className={`grid ${TRACK_GRID} select-none cursor-pointer rounded-md px-2 py-2 transition-colors [-webkit-touch-callout:none] ${
         selected ? 'bg-raised shadow-now' : 'hover:bg-card focus-within:bg-card active:bg-raised'
       }`}
     >
@@ -65,28 +74,21 @@ function TrackRow({ track, index, selected, activity = 'none', onSelect, onPlay 
 
       <CoverArt cover={fallback} src={track.cover} />
 
-      <div className="min-w-0">
+      <button
+        type="button"
+        aria-label={`Buka pemutar: ${track.title}${by}`}
+        aria-haspopup="dialog"
+        className="min-w-0 rounded-sm text-left focus-ring"
+      >
         <p title={track.title} className={`truncate text-base font-medium ${highlighted ? 'text-accent' : 'text-ink'}`}>
-          {href ? (
-            <a
-              href={href}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="rounded-sm hover:underline focus-ring"
-            >
-              {track.title}
-              <span className="sr-only"> (buka di Spotify)</span>
-            </a>
-          ) : (
-            track.title
-          )}
+          {track.title}
         </p>
         <p className="truncate text-sm text-ink-muted">
           {track.artists}
           {track.duration && <span className="sm:hidden"> · {track.duration}</span>}
           {activity === 'error' && <span className="text-danger"> · Gagal diputar</span>}
         </p>
-      </div>
+      </button>
 
       <p className="hidden truncate text-sm text-ink-muted md:block">{track.album}</p>
       <p className="hidden text-right text-sm tabular-nums text-ink-muted sm:block">{track.duration}</p>

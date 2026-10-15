@@ -8,6 +8,7 @@ import type {
   PlaybackTime,
   PlayerErrorCode,
   PlayerQueueState,
+  QueueAddResult,
   RepeatMode,
 } from '../types/player'
 import type { PlayAllHandler, PlaybackInfo, PlaylistTrack, PlayTrackHandler } from '../types/spotify'
@@ -18,6 +19,7 @@ import {
   getPreviousIndex,
   hasNext,
   hasPrevious,
+  insertUpcomingTrack,
   isOrderUsable,
   isValidIndex,
   moveUpcomingTrack,
@@ -469,6 +471,29 @@ export function useAudioPlayerController(playlistTracks: PlaylistTrack[]) {
     [applyQueueEdit],
   )
 
+  /**
+   * Menambah lagu ke antrean. Tidak ada lagu aktif (antrean kosong): lagu itu langsung diputar dan
+   * menjadi awal antrean. Jika antrean ada tetapi sudah selesai/error, lagu tetap masuk "Berikutnya".
+   */
+  const enqueue = useCallback(
+    (track: PlaylistTrack, where: 'next' | 'end'): QueueAddResult => {
+      const { queue, currentIndex, shuffleOrder, currentTrack } = stateRef.current
+      if (!isValidIndex(queue, currentIndex) || !currentTrack) {
+        startPlayback([track], 0)
+        return 'started'
+      }
+      if (queue[currentIndex].id === track.id) return 'current'
+      const before = queue.length
+      const edit = insertUpcomingTrack(queue, currentIndex, shuffleOrder, track, where)
+      if (!edit) return 'duplicate'
+      applyQueueEdit(edit)
+      return edit.queue.length > before ? 'added' : 'moved'
+    },
+    [applyQueueEdit, startPlayback],
+  )
+  const addToQueue = useCallback((track: PlaylistTrack) => enqueue(track, 'end'), [enqueue])
+  const playNextInQueue = useCallback((track: PlaylistTrack) => enqueue(track, 'next'), [enqueue])
+
   const playPrevious = useCallback(() => {
     const { queue, currentIndex, status, shuffleOrder } = stateRef.current
     const { currentTime, seekable } = timeRef.current
@@ -534,6 +559,8 @@ export function useAudioPlayerController(playlistTracks: PlaylistTrack[]) {
       playQueueItem,
       moveUpcoming,
       removeUpcoming,
+      addToQueue,
+      playNextInQueue,
       togglePlayPause,
       playNext,
       playPrevious,
@@ -550,6 +577,8 @@ export function useAudioPlayerController(playlistTracks: PlaylistTrack[]) {
       playQueueItem,
       moveUpcoming,
       removeUpcoming,
+      addToQueue,
+      playNextInQueue,
       togglePlayPause,
       playNext,
       playPrevious,

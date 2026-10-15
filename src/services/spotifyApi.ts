@@ -11,7 +11,7 @@ import { extractSpotifyTrackLink, extractTrackId, isSafeHttpUrl, validateSpotify
 const DEFAULT_BASE_URL = 'https://api.nexadev.my.id'
 const PLAYLIST_PATH = '/api/spotifypl'
 const PLAYBACK_PATH = '/api/spotifyplay'
-/** API utama untuk memutar lagu lewat tautan Spotify-nya (satu penyedia dengan API playlist). */
+/** API cadangan (NexaDev) untuk memutar lagu lewat tautan Spotify-nya, dipakai jika API download (kyzz) gagal. */
 const TRACK_PATH = '/api/spotify'
 
 export const DEFAULT_TIMEOUT_MS = 15_000
@@ -23,7 +23,7 @@ function getBaseUrl(): string {
   return (configured || DEFAULT_BASE_URL).replace(/\/+$/, '')
 }
 
-/* API download berbasis URL lagu (CADANGAN setelah NexaDev; akurat: memutar persis lagu yang ditautkan). */
+/* API download berbasis URL lagu (UTAMA; akurat: memutar persis lagu yang ditautkan). NexaDev jadi cadangannya. */
 const DEFAULT_DOWNLOAD_BASE_URL = 'https://app.kyzznekoo.my.id'
 const DOWNLOAD_PATH = '/api/download/spotify'
 /** Nama parameter query untuk tautan lagu. ASUMSI: `url`. Ubah di sini jika API memakai nama lain. */
@@ -477,7 +477,7 @@ async function requestDownload(trackUrl: string, options: FetchPlaylistOptions =
 }
 
 /* ------------------------------------------------------------------ */
-/* API utama NexaDev: /api/spotify?url={tautan lagu}                   */
+/* API cadangan NexaDev: /api/spotify?url={tautan lagu}                */
 /* ------------------------------------------------------------------ */
 
 export function buildTrackEndpoint(trackUrl: string): string {
@@ -529,7 +529,7 @@ export function parseTrackResponse(body: unknown, trackUrl: string): PlaybackInf
   }
 }
 
-/** Meminta audio + metadata satu lagu ke API utama NexaDev (selalu permintaan baru). */
+/** Meminta audio + metadata satu lagu ke API cadangan NexaDev (selalu permintaan baru). */
 async function requestTrack(trackUrl: string, options: FetchPlaylistOptions = {}): Promise<PlaybackInfo> {
   const { signal, timeoutMs = PLAYBACK_TIMEOUT_MS } = options
   const body = await requestJson(buildTrackEndpoint(trackUrl), {
@@ -541,17 +541,17 @@ async function requestTrack(trackUrl: string, options: FetchPlaylistOptions = {}
 }
 
 /**
- * Mengambil info audio lewat tautan lagu: NexaDev dulu, lalu API download (cadangan).
+ * Mengambil info audio lewat tautan lagu: API download (kyzz) dulu, lalu NexaDev (cadangan).
  * Pembatalan (`aborted`) tidak pernah memicu cadangan.
  */
 async function requestByLink(trackUrl: string, options: FetchPlaylistOptions = {}): Promise<PlaybackInfo> {
   try {
-    return await requestTrack(trackUrl, options)
+    return await requestDownload(trackUrl, options)
   } catch (error) {
     if (error instanceof SpotifyApiError && error.code === 'aborted') throw error
-    console.warn('[MusicVerse] API NexaDev /spotify gagal, memakai API download (cadangan):', error)
+    console.warn('[MusicVerse] API download (kyzz) gagal, memakai NexaDev /spotify (cadangan):', error)
   }
-  return requestDownload(trackUrl, options)
+  return requestTrack(trackUrl, options)
 }
 
 /* ------------------------------------------------------------------ */
@@ -595,7 +595,7 @@ export async function searchTrackByTitle(
   return info
 }
 
-/** Memuat satu lagu lewat tautan Spotify-nya (akurat). Urutan: NexaDev /spotify → API download. */
+/** Memuat satu lagu lewat tautan Spotify-nya (akurat). Urutan: API download (kyzz) → NexaDev /spotify. */
 export async function searchTrackByLink(
   trackUrl: string,
   options: FetchPlaylistOptions = {},
@@ -610,7 +610,7 @@ export async function searchTrackByLink(
 /**
  * Info playback untuk pemutaran. Urutan:
  * 1. hasil pencarian yang baru saja dibuat (sekali pakai),
- * 2. NexaDev /api/spotify memakai tautan lagu (akurat), lalu API download sebagai cadangannya,
+ * 2. API download (kyzz) memakai tautan lagu (akurat), lalu NexaDev /api/spotify sebagai cadangannya,
  * 3. cadangan terakhir: cari lewat judul (kurang akurat) jika lagu tidak punya tautan atau keduanya gagal.
  */
 export async function fetchPlaybackInfo(

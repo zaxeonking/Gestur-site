@@ -182,3 +182,44 @@ export function removeUpcomingTrack(
   upcoming.splice(position, 1)
   return rebuildQueue(tracks, [...head, ...upcoming], index, shuffled)
 }
+
+/**
+ * Menyisipkan lagu ke daftar "Berikutnya": `next` = tepat setelah lagu aktif, `end` = paling akhir.
+ * Lagu yang sama (id sama) tidak digandakan: `next` memindahkannya ke depan, `end` tidak mengubah apa pun.
+ * null = tidak ada perubahan (tidak ada lagu aktif, lagu itu sedang diputar, atau sudah ada).
+ */
+export function insertUpcomingTrack(
+  tracks: readonly PlaylistTrack[],
+  index: number | null,
+  order: ShuffleOrder,
+  track: PlaylistTrack,
+  where: 'next' | 'end',
+): QueueEdit | null {
+  if (!isValidIndex(tracks, index)) return null
+  if (tracks[index].id === track.id) return null
+  const { base, shuffled } = getPlayOrder(tracks.length, index, order)
+  const head = base.slice(0, base.indexOf(index) + 1)
+  const upcoming = base.slice(head.length)
+  const existing = upcoming.findIndex((i) => tracks[i].id === track.id)
+  if (existing !== -1) {
+    if (where === 'end' || existing === 0) return null
+    const [moved] = upcoming.splice(existing, 1)
+    upcoming.unshift(moved)
+    return rebuildQueue(tracks, [...head, ...upcoming], index, shuffled)
+  }
+  const nextTracks = [...tracks, track]
+  const added = tracks.length
+  if (where === 'next') upcoming.unshift(added)
+  else upcoming.push(added)
+  return rebuildQueue(nextTracks, [...head, ...upcoming], index, shuffled)
+}
+
+/** Apakah lagu ini sudah ada di daftar "Berikutnya" (bukan lagu yang sedang diputar). */
+export function isTrackUpcoming(
+  tracks: readonly PlaylistTrack[],
+  index: number | null,
+  order: ShuffleOrder,
+  trackId: string,
+): boolean {
+  return getUpcomingTracks(tracks, index, order).some((item) => item.track.id === trackId)
+}

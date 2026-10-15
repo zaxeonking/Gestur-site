@@ -1,9 +1,10 @@
-import { ArrowDownToLine, ArrowUpToLine, ExternalLink, Play, Trash2, type LucideIcon } from 'lucide-react'
+import { ArrowDownToLine, ArrowUpToLine, ExternalLink, Play, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useRef, type KeyboardEvent } from 'react'
 import type { PlaylistTrack } from '../../types/spotify'
 import { fallbackCover } from '../../utils/fallbackCover'
 import { extractTrackId } from '../../utils/spotifyUrl'
 import CoverArt from '../ui/CoverArt'
+import Action from './SheetAction'
 
 const FOCUS = 'focus-ring'
 
@@ -17,32 +18,6 @@ interface TrackActionSheetProps {
   onMoveToEnd: () => void
   onRemove: () => void
   onClose: () => void
-}
-
-interface ActionProps {
-  icon: LucideIcon
-  label: string
-  onClick: () => void
-  disabled?: boolean
-  danger?: boolean
-}
-
-function Action({ icon: Icon, label, onClick, disabled, danger }: ActionProps) {
-  return (
-    <li>
-      <button
-        type="button"
-        onClick={onClick}
-        disabled={disabled}
-        className={`flex min-h-[3rem] w-full items-center gap-4 rounded-md px-3 text-left text-sm font-medium transition-colors hover:bg-raised active:bg-raised disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent ${
-          danger ? 'text-danger' : 'text-ink'
-        } ${FOCUS}`}
-      >
-        <Icon className="h-5 w-5 shrink-0" aria-hidden="true" />
-        {label}
-      </button>
-    </li>
-  )
 }
 
 /**

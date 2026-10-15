@@ -61,8 +61,8 @@ Tombol X di form menghapus playlist (termasuk cache).
 ## Playback (tahap 4)
 
 Urutan sumber audio saat memutar lagu:
-1. `GET {BASE}/api/spotify?url={ENCODED_URL_LAGU}` (NexaDev) → `data.url` (audio penuh; `data.preview` = cuplikan 30 dtk, hanya dipakai bila `url` kosong).
-2. Cadangan: API download `app.kyzznekoo.my.id` (`/api/download/spotify?url=`).
+1. API download `app.kyzznekoo.my.id` (`/api/download/spotify?url=`) → `data.url` (audio).
+2. Cadangan: `GET {BASE}/api/spotify?url={ENCODED_URL_LAGU}` (NexaDev) → `data.url` (audio penuh; `data.preview` = cuplikan 30 dtk, hanya dipakai bila `url` kosong).
 3. Cadangan terakhir (kurang akurat): `GET {BASE}/api/spotifyplay?q={encodeURIComponent(judul)}` → `data.mp3_url`.
 
 - **Satu engine.** `services/audioEngine.ts` memegang satu `HTMLAudioElement`. `AudioPlayerProvider`
@@ -192,3 +192,24 @@ Semua nilai visual berasal dari `tailwind.config.js` dan `src/index.css`; hindar
 ## Android (Capacitor)
 
 Panduan instalasi, konfigurasi, build, dan uji perangkat: [docs/ANDROID.md](docs/ANDROID.md). Status: disiapkan, belum pernah dibuild.
+
+## Menu lagu (tahan lama)
+
+Tahan lama (±0,5 detik) atau klik kanan pada baris lagu mana pun (playlist, Cari, riwayat di Koleksi)
+membuka menu opsi: **Putar sekarang**, **Putar berikutnya**, **Tambah ke antrean** (berubah jadi
+**Hapus dari antrean** jika lagu sudah ada di sana), **Salin tautan Spotify**, dan **Buka di Spotify**.
+
+- Berlaku juga untuk lagu di luar playlist yang sedang diputar; lagunya ditambahkan ke antrean yang berjalan.
+- Jika belum ada antrean, opsi antrean memutar lagu itu langsung dan antreannya dimulai dari situ
+  (menu menampilkan catatan soal ini).
+- Lagu yang sama tidak digandakan di daftar "Berikutnya": "Putar berikutnya" memindahkannya ke depan.
+- Kode: `hooks/useLongPress.ts`, `context/TrackMenuContext.tsx`, `components/player/TrackMenuSheet.tsx`;
+  aksi pemutar `addToQueue` / `playNextInQueue`; logika murni `insertUpcomingTrack` di `utils/playerQueue.ts`.
+
+## Ketuk baris lagu
+
+Ketuk biasa pada baris lagu (playlist, Cari, riwayat) memutar lagu itu dan membuka **pemutar penuh**;
+judul tidak lagi menjadi tautan ke Spotify. Jika lagunya sudah aktif, ketukan hanya membuka pemutar penuh
+(tidak menjeda). Tombol Play/Jeda di kanan baris tetap memutar/menjeda tanpa membuka pemutar penuh.
+Tautan ke Spotify masih ada di menu tahan lama ("Buka di Spotify") dan di pemutar.
+State "pemutar penuh terbuka" ada di `context/PlayerUiContext.tsx`.
