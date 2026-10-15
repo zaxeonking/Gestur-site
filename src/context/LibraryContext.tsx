@@ -13,6 +13,7 @@ import type { LibraryPrefs, RecentPlay, SavedPlaylist, StorageHealth } from '../
 import type { PlaylistDetail, PlaylistTrack } from '../types/spotify'
 import {
   addRecentPlay,
+  findSavedMatch,
   LIBRARY_KEYS,
   readPrefs,
   readRecentPlays,
@@ -28,8 +29,10 @@ import { usePlaylist } from './PlaylistContext'
 
 /** Penyimpanan gagal untuk alasan yang perlu diketahui pengguna. */
 export interface LibraryNotice {
-  reason: 'quota' | 'limit' | 'invalid'
-  /** Judul playlist yang gagal disimpan. */
+  reason: 'quota' | 'limit' | 'invalid' | 'unavailable'
+  /** Operasi yang gagal. */
+  action: 'save' | 'remove'
+  /** Judul playlist/lagu yang gagal diproses. */
   title: string
 }
 
@@ -42,9 +45,16 @@ export interface LibraryContextValue {
   health: StorageHealth
   notice: LibraryNotice | null
   isSaved: (playlistId: string) => boolean
-  /** Menyimpan/memperbarui playlist di Koleksi. Mengembalikan true jika masuk ke Koleksi. */
-  savePlaylist: (playlist: PlaylistDetail) => boolean
-  removePlaylist: (playlistId: string) => void
+  /** ID entri Koleksi yang sama dengan `playlist` (termasuk lagu pencarian yang sama), atau null. */
+  savedIdFor: (playlist: PlaylistDetail) => string | null
+  /**
+   * Menyimpan/memperbarui playlist di Koleksi. Mengembalikan true HANYA jika benar-benar tersimpan
+   * di penyimpanan perangkat. `allowMemoryOnly` (simpan otomatis) mengizinkan simpanan di memori
+   * saat localStorage tidak bisa diakses.
+   */
+  savePlaylist: (playlist: PlaylistDetail, options?: { allowMemoryOnly?: boolean }) => boolean
+  /** Menghapus dari Koleksi. Mengembalikan true jika penghapusan berhasil tersimpan. */
+  removePlaylist: (playlistId: string) => boolean
   clearRecent: () => void
   setPrefs: (patch: Partial<LibraryPrefs>) => void
   dismissNotice: () => void
@@ -110,24 +120,28 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const savePlaylist = useCallback(
-    (playlist: PlaylistDetail): boolean => {
+    (playlist: PlaylistDetail, options?: { allowMemoryOnly?: boolean }): boolean => {
       const read = readSavedPlaylists()
       const memoryOnly = read.health === 'unavailable'
       const base = memoryOnly ? savedRef.current : read.items
 
-      const result = upsertSavedPlaylist(base, playlist)
-      if (!result.ok) {
+      // Kembalikan state ke isi penyimpanan sebenarnya dan beri tahu pengguna: tidak ada status "berhasil" palsu.
+      const fail = (reason: LibraryNotice['reason']): false => {
         commitSaved(base)
-        setNotice({ reason: result.reason, title: playlist.title })
+        setNotice({ reason, action: 'save', title: playlist.title })
         return false
       }
 
+      const result = upsertSavedPlaylist(base, playlist)
+      if (!result.ok) return fail(result.reason)
+
       const write = writeSavedPlaylists(result.list)
-      if (!write.ok && write.reason === 'quota') {
-        // Penyimpanan penuh: jangan berpura-pura tersimpan.
-        commitSaved(base)
-        setNotice({ reason: 'quota', title: playlist.title })
-        return false
+      if (!write.ok) {
+        if (write.reason === 'quota') return fail('quota')
+        if (!options?.allowMemoryOnly) {
+          setHealth('unavailable')
+          return fail('unavailable')
+        }
       }
 
       commitSaved(result.list)
@@ -139,13 +153,26 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
   )
 
   const removePlaylist = useCallback(
-    (playlistId: string) => {
+    (playlistId: string): boolean => {
       const read = readSavedPlaylists()
-      const base = read.health === 'unavailable' ? savedRef.current : read.items
+      const memoryOnly = read.health === 'unavailable'
+      const base = memoryOnly ? savedRef.current : read.items
+      const target = base.find((item) => item.id === playlistId)
       const next = removeSavedPlaylist(base, playlistId)
       const write = writeSavedPlaylists(next)
+
+      // Penghapusan yang tidak tersimpan akan "hidup lagi" setelah reload: jangan tampilkan seolah berhasil.
+      if (!write.ok && !memoryOnly) {
+        commitSaved(base)
+        setHealth('unavailable')
+        setNotice({ reason: write.reason, action: 'remove', title: target?.title ?? '' })
+        return false
+      }
+
       commitSaved(next)
+      setNotice(null)
       setHealth(write.ok ? 'ok' : 'unavailable')
+      return true
     },
     [commitSaved],
   )
@@ -200,7 +227,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
     if (!playlist || playlistStatus !== 'success' || fromCache || playlist.source === 'search') return
     if (lastAutoSavedRef.current === playlist) return
     lastAutoSavedRef.current = playlist
-    savePlaylist(playlist)
+    savePlaylist(playlist, { allowMemoryOnly: true })
   }, [playlist, playlistStatus, fromCache, savePlaylist])
 
   /* Catat Recently Played saat audio benar-benar terdengar. */
@@ -233,6 +260,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       health,
       notice,
       isSaved: (playlistId: string) => saved.some((item) => item.id === playlistId),
+      savedIdFor: (target: PlaylistDetail) => findSavedMatch(saved, target)?.id ?? null,
       savePlaylist,
       removePlaylist,
       clearRecent,

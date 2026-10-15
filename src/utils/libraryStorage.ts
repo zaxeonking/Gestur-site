@@ -100,16 +100,31 @@ function parseTracks(raw: unknown): PlaylistTrack[] | null {
 export function parseSavedPlaylist(raw: unknown): SavedPlaylist | null {
   if (!isRecord(raw)) return null
   const { id, url, title } = raw
-  if (typeof id !== 'string' || typeof url !== 'string') return null
+  if (typeof id !== 'string' || !id || typeof url !== 'string') return null
   if (typeof title !== 'string' || !title.trim()) return null
   if (raw.author !== undefined && typeof raw.author !== 'string') return null
+
+  const tracks = parseTracks(raw.tracks)
+  if (!tracks) return null
+
+  // Hasil pencarian lagu: `url` berisi kata kunci/tautan lagu (bukan tautan playlist), jadi tidak
+  // divalidasi sebagai playlist. Tanpa pengecualian ini lagu dari pencarian tidak pernah bisa disimpan.
+  if (raw.source === 'search') {
+    if (!url.trim() || tracks.length === 0) return null
+    return {
+      id,
+      url: url.trim(),
+      title: title.trim(),
+      cover: text(raw.cover),
+      source: 'search',
+      tracks,
+      savedAt: timestamp(raw.savedAt),
+    }
+  }
 
   // ID playlist harus cocok dengan URL-nya; keduanya divalidasi oleh aturan yang sama dengan form impor.
   const validation = validateSpotifyPlaylistUrl(url)
   if (!validation.valid || validation.playlistId !== id) return null
-
-  const tracks = parseTracks(raw.tracks)
-  if (!tracks) return null
 
   return {
     id,
@@ -246,17 +261,32 @@ export function upsertSavedPlaylist(
     title: playlist.title,
     cover: playlist.cover,
     author: playlist.author,
+    source: playlist.source,
     tracks: playlist.tracks.map(toStoredTrack),
     savedAt: now,
   })
   if (!entry) return { ok: false, reason: 'invalid' }
 
-  const exists = list.some((item) => item.id === entry.id)
-  if (!exists && list.length >= MAX_SAVED_PLAYLISTS) return { ok: false, reason: 'limit' }
+  // Entri yang sama (ID sama, atau lagu pencarian yang sama) diganti di tempat, tidak digandakan.
+  const match = findSavedMatch(list, playlist)
+  if (!match && list.length >= MAX_SAVED_PLAYLISTS) return { ok: false, reason: 'limit' }
   return {
     ok: true,
-    list: exists ? list.map((item) => (item.id === entry.id ? entry : item)) : [entry, ...list],
+    list: match ? list.map((item) => (item === match ? entry : item)) : [entry, ...list],
   }
+}
+
+/**
+ * Entri Koleksi yang sama dengan `playlist`: ID yang sama, atau (untuk hasil pencarian) lagu yang sama
+ * walau dicari dengan kata kunci berbeda. Dipakai untuk status tombol dan pencegahan duplikat.
+ */
+export function findSavedMatch(list: readonly SavedPlaylist[], playlist: PlaylistDetail): SavedPlaylist | undefined {
+  const byId = list.find((item) => item.id === playlist.id)
+  if (byId) return byId
+  const first = playlist.tracks[0]
+  if (playlist.source !== 'search' || !first) return undefined
+  const key = recentKey(first)
+  return list.find((item) => item.source === 'search' && item.tracks[0] && recentKey(item.tracks[0]) === key)
 }
 
 /** Kembali ke bentuk `PlaylistDetail` (tanpa metadata Koleksi) untuk dipakai sebagai playlist aktif. */
@@ -267,6 +297,7 @@ export function toPlaylistDetail(saved: SavedPlaylist): PlaylistDetail {
     title: saved.title,
     cover: saved.cover,
     ...(saved.author ? { author: saved.author } : {}),
+    ...(saved.source ? { source: saved.source } : {}),
     tracks: saved.tracks,
   }
 }

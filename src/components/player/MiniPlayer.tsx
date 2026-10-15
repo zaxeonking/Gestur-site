@@ -3,6 +3,7 @@ import { useAudioPlayer } from '../../hooks/useAudioPlayer'
 import { useNowPlaying } from '../../hooks/useNowPlaying'
 import { STATUS_TEXT } from '../../utils/playerStatus'
 import CoverArt from '../ui/CoverArt'
+import CollectionButton from './CollectionButton'
 import { PlayerError, QueueButton, SpotifyLink, TransportControls } from './PlayerControls'
 import SeekBar from './SeekBar'
 
@@ -69,6 +70,7 @@ export default function MiniPlayer({ onOpen, onOpenQueue }: { onOpen: () => void
           <TransportControls />
           {/* Layar sempit: antrean dibuka dari full player (ruang mini player terbatas). */}
           <QueueButton onClick={onOpenQueue} className="hidden sm:flex lg:hidden" />
+          <CollectionButton className="hidden sm:flex lg:hidden" />
           {/* Layar sempit: tautan Spotify ada di full player; ruang mini player dipakai untuk judul + kontrol. */}
           <SpotifyLink url={now.spotifyUrl} variant="icon" className="hidden sm:flex lg:hidden" />
         </div>
@@ -78,6 +80,7 @@ export default function MiniPlayer({ onOpen, onOpenQueue }: { onOpen: () => void
         </div>
 
         <div className="hidden items-center justify-end gap-1 lg:col-start-3 lg:row-span-2 lg:row-start-1 lg:flex">
+          <CollectionButton className="flex" />
           <QueueButton onClick={onOpenQueue} className="flex" />
           <SpotifyLink url={now.spotifyUrl} variant="icon" />
         </div>

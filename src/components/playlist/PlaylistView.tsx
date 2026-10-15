@@ -1,6 +1,8 @@
 import { AlertCircle, ListMusic, RotateCw } from 'lucide-react'
+import { useLibrary } from '../../context/LibraryContext'
 import { usePlaylist } from '../../context/PlaylistContext'
 import { useAudioPlayer } from '../../hooks/useAudioPlayer'
+import { noticeMessage } from '../../utils/libraryNotice'
 import { classifyImportInput } from '../../utils/spotifyUrl'
 import { getRowActivity } from '../../utils/playerStatus'
 import EmptyState from '../ui/EmptyState'
@@ -39,6 +41,7 @@ export default function PlaylistView() {
   const { status, playlist, error, errorDetail, fromCache, canRetry, loadPlaylist, requestedUrl } = usePlaylist()
   const wasSearch = requestedUrl !== null && ['search', 'track'].includes(classifyImportInput(requestedUrl).kind)
   const player = useAudioPlayer()
+  const { notice, savedIdFor, savePlaylist, removePlaylist, dismissNotice } = useLibrary()
 
   if (status === 'loading') return <PlaylistSkeleton />
 
@@ -68,8 +71,28 @@ export default function PlaylistView() {
     )
   }
 
+  const savedId = savedIdFor(playlist)
+  const handleToggleSaved = () => {
+    // Status tombol hanya berubah jika operasi benar-benar tersimpan; kegagalan ditampilkan lewat `notice`.
+    if (savedId !== null) removePlaylist(savedId)
+    else savePlaylist(playlist)
+  }
+
   return (
     <section aria-label={`Playlist ${playlist.title}`} className="space-y-6">
+      {notice && (
+        <div
+          role="alert"
+          className="flex items-start gap-3 rounded-lg bg-card px-4 py-3 text-sm text-ink"
+        >
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-danger" aria-hidden="true" />
+          <p className="min-w-0 flex-1">{noticeMessage(notice)}</p>
+          <button type="button" onClick={dismissNotice} className="btn-secondary h-9 px-3">
+            Tutup
+          </button>
+        </div>
+      )}
+
       {status === 'error' && error && (
         <div
           role="alert"
@@ -94,6 +117,8 @@ export default function PlaylistView() {
         fromCache={fromCache}
         onPlayAll={() => player.playAll(playlist.tracks)}
         onReload={() => void loadPlaylist(playlist.url)}
+        isSaved={savedId !== null}
+        onToggleSaved={handleToggleSaved}
       />
 
       <TrackList

@@ -1,9 +1,12 @@
-import { ChevronDown } from 'lucide-react'
+import { AlertCircle, ChevronDown } from 'lucide-react'
 import { useEffect, useRef, type KeyboardEvent } from 'react'
+import { useLibrary } from '../../context/LibraryContext'
 import { useAudioPlayer } from '../../hooks/useAudioPlayer'
 import { useNowPlaying } from '../../hooks/useNowPlaying'
+import { noticeMessage } from '../../utils/libraryNotice'
 import { looksLikeSameTrack, STATUS_TEXT } from '../../utils/playerStatus'
 import CoverArt from '../ui/CoverArt'
+import CollectionButton from './CollectionButton'
 import { PlayerError, QueueButton, SpotifyLink, TransportControls } from './PlayerControls'
 import SeekBar from './SeekBar'
 
@@ -16,6 +19,7 @@ const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), [tabi
 export default function FullPlayer({ onClose, onOpenQueue }: { onClose: () => void; onOpenQueue: () => void }) {
   const { status, currentTrack, playbackInfo } = useAudioPlayer()
   const now = useNowPlaying()
+  const { notice, dismissNotice } = useLibrary()
   const dialogRef = useRef<HTMLDivElement>(null)
   const closeRef = useRef<HTMLButtonElement>(null)
 
@@ -108,9 +112,20 @@ export default function FullPlayer({ onClose, onOpenQueue }: { onClose: () => vo
 
           <TransportControls size="lg" />
 
-          <div className="flex justify-center">
+          <div className="flex items-center justify-center gap-3">
+            <CollectionButton size="lg" className="flex" />
             <SpotifyLink url={now.spotifyUrl} variant="button" />
           </div>
+
+          {notice && (
+            <div role="alert" className="flex items-start gap-2 rounded-lg bg-card/80 px-3 py-2 text-xs text-ink">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-danger" aria-hidden="true" />
+              <p className="min-w-0 flex-1">{noticeMessage(notice)}</p>
+              <button type="button" onClick={dismissNotice} className="btn-secondary h-8 px-3 text-xs">
+                Tutup
+              </button>
+            </div>
+          )}
 
           {mismatch && playbackInfo && (
             <p className="text-center text-xs text-ink-muted">

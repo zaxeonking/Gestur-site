@@ -129,7 +129,7 @@ export function PlaylistProvider({ children }: { children: ReactNode }) {
       // Permintaan yang masih berjalan milik playlist lain; batalkan agar tidak menimpa pilihan ini.
       controllerRef.current?.abort()
       controllerRef.current = null
-      saveLastPlaylist(playlist)
+      if (playlist.source !== 'search') saveLastPlaylist(playlist)
       setState({ status: 'success', playlist, error: null, requestedUrl: playlist.url, fromCache: true })
     },
     [activeId],

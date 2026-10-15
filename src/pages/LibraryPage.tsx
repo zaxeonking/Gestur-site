@@ -7,12 +7,13 @@ import Chip from '../components/ui/Chip'
 import CoverArt from '../components/ui/CoverArt'
 import EmptyState from '../components/ui/EmptyState'
 import SectionHeader from '../components/ui/SectionHeader'
-import { useLibrary, type LibraryNotice } from '../context/LibraryContext'
+import { useLibrary } from '../context/LibraryContext'
 import { usePlaylist } from '../context/PlaylistContext'
 import { useAudioPlayer } from '../hooks/useAudioPlayer'
 import type { LibrarySort, LibraryView, RecentPlay, SavedPlaylist } from '../types/library'
 import { fallbackCover } from '../utils/fallbackCover'
-import { MAX_SAVED_PLAYLISTS, sortSavedPlaylists, toPlaylistDetail } from '../utils/libraryStorage'
+import { noticeMessage } from '../utils/libraryNotice'
+import { sortSavedPlaylists, toPlaylistDetail } from '../utils/libraryStorage'
 import { getRowActivity } from '../utils/playerStatus'
 
 const sortOptions: { id: LibrarySort; label: string }[] = [
@@ -26,17 +27,6 @@ const viewOptions: { id: LibraryView; label: string; icon: typeof LayoutGrid }[]
 ]
 
 const primaryButton = 'btn-primary'
-
-function noticeMessage({ reason, title }: LibraryNotice): string {
-  switch (reason) {
-    case 'quota':
-      return `“${title}” tidak masuk ke Koleksi karena penyimpanan browser penuh. Hapus playlist lain, lalu simpan lagi.`
-    case 'limit':
-      return `Koleksi sudah berisi ${MAX_SAVED_PLAYLISTS} playlist, jadi “${title}” belum disimpan. Hapus salah satu untuk menyimpannya.`
-    case 'invalid':
-      return `“${title}” tidak bisa disimpan karena datanya tidak valid.`
-  }
-}
 
 function NoticeBar({
   role,
@@ -68,7 +58,7 @@ function NoticeBar({
 export default function LibraryPage() {
   const navigate = useNavigate()
   const { playlist: active, restorePlaylist } = usePlaylist()
-  const { saved, recent, prefs, health, notice, isSaved, savePlaylist, removePlaylist, clearRecent, setPrefs, dismissNotice } =
+  const { saved, recent, prefs, health, notice, savedIdFor, savePlaylist, removePlaylist, clearRecent, setPrefs, dismissNotice } =
     useLibrary()
   const player = useAudioPlayer()
   const [recoveredDismissed, setRecoveredDismissed] = useState(false)
@@ -76,7 +66,7 @@ export default function LibraryPage() {
 
   const sorted = useMemo(() => sortSavedPlaylists(saved, prefs.sort), [saved, prefs.sort])
   const activeId = active?.id ?? null
-  const activeUnsaved = active !== null && !isSaved(active.id)
+  const activeUnsaved = active !== null && savedIdFor(active) === null
 
   /** Membuka playlist tersimpan di Beranda. Playlist yang sudah aktif dan playback-nya tidak disentuh. */
   const handleOpen = useCallback(
