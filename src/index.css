@@ -1,0 +1,86 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    color-scheme: dark;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    @apply bg-bg font-sans text-ink antialiased;
+    margin: 0;
+    overscroll-behavior-y: none;
+  }
+
+  ::selection {
+    background: rgba(29, 185, 84, 0.35);
+  }
+
+  /* Hormati preferensi "kurangi gerakan": animasi dan transisi praktis dimatikan. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    ::before,
+    ::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@layer components {
+  /* Cincin fokus keyboard yang sama di seluruh aplikasi. */
+  .focus-ring {
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent;
+  }
+  .focus-ring-light {
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white;
+  }
+
+  /* Tombol teks: tinggi 44px (target sentuh), satu set state hover/active/disabled. */
+  .btn-primary,
+  .btn-secondary,
+  .btn-danger {
+    @apply inline-flex h-11 shrink-0 select-none items-center justify-center gap-2 rounded-full px-5 text-sm font-semibold transition-[background-color,color,transform,opacity] duration-150 active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50 disabled:active:scale-100 motion-reduce:active:scale-100;
+  }
+  .btn-primary {
+    @apply bg-accent text-black hover:bg-accent-soft active:bg-accent-deep focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:hover:bg-accent;
+  }
+  .btn-secondary {
+    @apply bg-raised text-ink hover:bg-raised-hover active:bg-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:hover:bg-raised;
+  }
+  .btn-danger {
+    @apply bg-danger text-black hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white;
+  }
+
+  /* Tombol ikon bulat 44px. */
+  .icon-btn {
+    @apply inline-flex h-11 w-11 shrink-0 select-none items-center justify-center rounded-full text-ink-muted transition-colors hover:text-ink active:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent;
+  }
+
+  /* Placeholder loading. Statis bila pengguna meminta gerakan dikurangi. */
+  .skeleton {
+    background-color: theme('colors.raised.DEFAULT');
+    background-image: linear-gradient(
+      90deg,
+      transparent 0%,
+      rgba(255, 255, 255, 0.05) 50%,
+      transparent 100%
+    );
+    background-size: 200% 100%;
+    @apply animate-shimmer;
+  }
+}
+
+@layer utilities {
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+}

@@ -1,0 +1,22 @@
+node_modules
+dist
+*.local
+.DS_Store
+*.tsbuildinfo
+.env
+.env.local
+
+# Android / Capacitor (folder android/ sendiri DI-commit; hanya artefak build yang diabaikan)
+android/.gradle
+android/build
+android/app/build
+android/local.properties
+android/captures
+android/app/src/main/assets/public
+android/app/src/main/assets/capacitor.config.json
+android/app/src/main/assets/capacitor.plugins.json
+android/app/src/main/res/xml/config.xml
+*.apk
+*.aab
+*.jks
+*.keystore
