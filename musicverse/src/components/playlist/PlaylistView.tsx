@@ -22,9 +22,20 @@ function RetryButton() {
   )
 }
 
+/** Detail teknis error; teks bisa dipilih/disalin untuk dikirim saat melapor masalah. */
+function ErrorDetail({ detail }: { detail?: string | null }) {
+  if (!detail) return null
+  return (
+    <details className="w-full max-w-md text-left text-xs text-ink-muted" open>
+      <summary className="cursor-pointer select-none">Detail teknis</summary>
+      <pre className="mt-2 select-text whitespace-pre-wrap break-all rounded-md bg-bg p-3 font-mono">{detail}</pre>
+    </details>
+  )
+}
+
 /** Menampilkan playlist dari API: kosong, memuat, gagal, atau daftar lagu. */
 export default function PlaylistView() {
-  const { status, playlist, error, fromCache, canRetry, loadPlaylist } = usePlaylist()
+  const { status, playlist, error, errorDetail, fromCache, canRetry, loadPlaylist } = usePlaylist()
   const player = useAudioPlayer()
 
   if (status === 'loading') return <PlaylistSkeleton />
@@ -37,7 +48,12 @@ export default function PlaylistView() {
           tone="error"
           title="Playlist gagal dimuat"
           description={error ?? 'Terjadi kesalahan. Coba lagi.'}
-          action={canRetry ? <RetryButton /> : undefined}
+          action={
+            <div className="flex flex-col items-center gap-4">
+              {canRetry && <RetryButton />}
+              <ErrorDetail detail={errorDetail} />
+            </div>
+          }
         />
       )
     }
@@ -64,6 +80,7 @@ export default function PlaylistView() {
             </span>
           </p>
           {canRetry && <RetryButton />}
+          <ErrorDetail detail={errorDetail} />
         </div>
       )}
 

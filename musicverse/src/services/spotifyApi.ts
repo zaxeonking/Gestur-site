@@ -40,6 +40,8 @@ export class SpotifyApiError extends Error {
   readonly code: SpotifyApiErrorCode
   readonly status?: number
   readonly originalError?: unknown
+  /** URL request yang gagal (diisi oleh requestJson), untuk diagnosis. */
+  endpoint?: string
 
   constructor(
     code: SpotifyApiErrorCode,
@@ -211,21 +213,30 @@ async function requestJson(endpoint: string, options: RequestJsonOptions): Promi
       })
     }
   } catch (error) {
-    if (error instanceof SpotifyApiError) throw error
+    if (error instanceof SpotifyApiError) {
+      error.endpoint ??= endpoint
+      throw error
+    }
     if (timedOut) {
-      throw new SpotifyApiError(
-        'timeout',
-        `Server tidak merespons dalam ${Math.round(timeoutMs / 1000)} detik. Coba lagi.`,
-        { originalError: error },
+      throw Object.assign(
+        new SpotifyApiError(
+          'timeout',
+          `Server tidak merespons dalam ${Math.round(timeoutMs / 1000)} detik. Coba lagi.`,
+          { originalError: error },
+        ),
+        { endpoint },
       )
     }
     if (controller.signal.aborted || signal?.aborted) {
-      throw new SpotifyApiError('aborted', 'Permintaan dibatalkan.', { originalError: error })
+      throw Object.assign(new SpotifyApiError('aborted', 'Permintaan dibatalkan.', { originalError: error }), { endpoint })
     }
-    throw new SpotifyApiError(
-      'network',
-      'Tidak dapat terhubung ke server. Periksa koneksi internet Anda.',
-      { originalError: error },
+    throw Object.assign(
+      new SpotifyApiError(
+        'network',
+        'Tidak dapat terhubung ke server. Periksa koneksi internet Anda.',
+        { originalError: error },
+      ),
+      { endpoint },
     )
   } finally {
     clearTimeout(timer)
@@ -369,4 +380,28 @@ export async function fetchPlaybackInfo(
     spotifyUrl: data.spotify_url,
     audioUrl: data.mp3_url,
   }
+}
+
+/**
+ * Ringkasan teknis error untuk ditampilkan di UI saat diagnosis (kode, status HTTP, URL request,
+ * dan pesan asli dari browser). Untuk "network", pesan asli biasanya "Failed to fetch";
+ * browser sengaja tidak membedakan CORS, DNS, atau offline.
+ */
+export function describeApiError(error: unknown): string {
+  const lines: string[] = []
+  if (error instanceof SpotifyApiError) {
+    lines.push(`kode: ${error.code}`)
+    if (error.status !== undefined) lines.push(`status HTTP: ${error.status}`)
+    if (error.endpoint) lines.push(`request: GET ${error.endpoint}`)
+    const original = error.originalError
+    if (original instanceof Error) lines.push(`asli: ${original.name}: ${original.message}`)
+    else if (original !== undefined) lines.push(`asli: ${String(original)}`)
+  } else if (error instanceof Error) {
+    lines.push(`${error.name}: ${error.message}`)
+  } else {
+    lines.push(String(error))
+  }
+  const origin = typeof window !== 'undefined' ? window.location.origin : ''
+  if (origin) lines.push(`origin app: ${origin}`)
+  return lines.join('\n')
 }

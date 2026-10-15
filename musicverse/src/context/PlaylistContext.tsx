@@ -8,7 +8,7 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import { fetchPlaylist, SpotifyApiError } from '../services/spotifyApi'
+import { describeApiError, fetchPlaylist, SpotifyApiError } from '../services/spotifyApi'
 import type { PlaylistDetail } from '../types/spotify'
 import { clearLastPlaylist, loadLastPlaylist, saveLastPlaylist } from '../utils/playlistStorage'
 
@@ -18,6 +18,8 @@ export interface PlaylistState {
   status: PlaylistStatus
   playlist: PlaylistDetail | null
   error: string | null
+  /** Detail teknis error (kode, status, URL request, pesan asli) untuk diagnosis. */
+  errorDetail?: string | null
   /** URL terakhir yang diminta, dipakai untuk retry dan muat ulang. */
   requestedUrl: string | null
   /** True jika playlist yang tampil dipulihkan dari penyimpanan perangkat. */
@@ -74,7 +76,7 @@ export function PlaylistProvider({ children }: { children: ReactNode }) {
     const controller = new AbortController()
     controllerRef.current = controller
 
-    setState((prev) => ({ ...prev, status: 'loading', error: null, requestedUrl: playlistUrl }))
+    setState((prev) => ({ ...prev, status: 'loading', error: null, errorDetail: null, requestedUrl: playlistUrl }))
 
     try {
       const playlist = await fetchPlaylist(playlistUrl, { signal: controller.signal })
@@ -90,7 +92,8 @@ export function PlaylistProvider({ children }: { children: ReactNode }) {
       return true
     } catch (error) {
       if (controller.signal.aborted) return false
-      setState((prev) => ({ ...prev, status: 'error', error: toMessage(error) }))
+      console.error('[MusicVerse] Gagal memuat playlist:', error)
+      setState((prev) => ({ ...prev, status: 'error', error: toMessage(error), errorDetail: describeApiError(error) }))
       return false
     }
   }, [])
