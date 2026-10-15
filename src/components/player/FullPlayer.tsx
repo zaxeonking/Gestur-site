@@ -99,17 +99,19 @@ export default function FullPlayer({ onClose, onOpenQueue }: { onClose: () => vo
           <QueueButton onClick={onOpenQueue} size="lg" className="-mr-2 flex" />
         </header>
 
-        {showLyrics ? (
-          <div className="my-3 h-[38dvh] min-h-[14rem] flex-1">
-            <LyricsPanel state={lyrics} onRetry={retryLyrics} />
-          </div>
-        ) : (
-          <div className="flex flex-1 items-center justify-center py-4">
-            <div className="w-[min(100%,38dvh,26rem)] shadow-2xl shadow-black/50">
+        {/* Slot tengah: ukuran kotak lirik = ukuran sampul (persegi), tidak memanjang. */}
+        <div className="flex flex-1 items-center justify-center py-4">
+          <div className="relative aspect-square w-[min(100%,38dvh,26rem)] overflow-hidden rounded-lg shadow-2xl shadow-black/50">
+            <div aria-hidden={showLyrics} className={`h-full w-full transition-opacity duration-300 ${showLyrics ? 'opacity-0' : 'opacity-100'}`}>
               <CoverArt cover={now.cover} src={now.coverSrc} />
             </div>
+            {showLyrics && (
+              <div className="absolute inset-0 animate-lyrics-up bg-black/55 backdrop-blur-md">
+                <LyricsPanel state={lyrics} onRetry={retryLyrics} />
+              </div>
+            )}
           </div>
-        )}
+        </div>
 
         <div className="space-y-4 sm:space-y-5">
           <div className="min-w-0">

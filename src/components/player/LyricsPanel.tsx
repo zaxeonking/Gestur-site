@@ -62,6 +62,11 @@ export default function LyricsPanel({ state, onRetry }: LyricsPanelProps) {
 const TIMING_WARN_S = 4
 const TIMING_UNUSABLE_S = 15
 const OFFSET_STEP_S = 0.5
+/** Pudar di tepi atas/bawah kotak supaya baris seolah muncul dan hilang saat bergulir naik. */
+const FADE_MASK = {
+  maskImage: 'linear-gradient(to bottom, transparent, #000 22%, #000 78%, transparent)',
+  WebkitMaskImage: 'linear-gradient(to bottom, transparent, #000 22%, #000 78%, transparent)',
+} as const
 
 function SyncedLyrics({ lines, lyricsDuration }: { lines: { time: number; text: string }[]; lyricsDuration: number | null }) {
   const { currentTime, seekable, duration: audioDuration } = usePlaybackTime()
@@ -112,48 +117,49 @@ function SyncedLyrics({ lines, lyricsDuration }: { lines: { time: number; text: 
 
   return (
     <div className="flex h-full flex-col">
-    <div
-      ref={containerRef}
-      onWheel={markManual}
-      onTouchMove={markManual}
-      className="relative min-h-0 flex-1 overflow-y-auto px-2 py-[30%] text-center"
-    >
-      {lines.map((line, i) => {
-        const isActive = i === active
-        const className = `block w-full rounded-md px-2 py-1.5 text-xl font-bold leading-snug transition-colors ${
-          isActive ? 'text-ink' : i < active ? 'text-ink-muted/60' : 'text-ink-muted'
-        }`
-        const text = line.text || '♪'
-        return seekable ? (
-          <button
-            key={i}
-            type="button"
-            data-line={i}
-            aria-current={isActive ? 'true' : undefined}
-            onClick={() => seekTo(line.time)}
-            className={`${className} focus-ring`}
-          >
-            {text}
-          </button>
-        ) : (
-          <p key={i} data-line={i} aria-current={isActive ? 'true' : undefined} className={className}>
-            {text}
-          </p>
-        )
-      })}
-      <p className="pt-6 text-[11px] text-ink-faint">Lirik dari LRCLIB</p>
-    </div>
-      <div className="flex shrink-0 items-center justify-center gap-2 pt-2 text-xs text-ink-muted">
-        {timingWarn && <span role="status">Waktu mungkin kurang pas.</span>}
+      <div
+        ref={containerRef}
+        onWheel={markManual}
+        onTouchMove={markManual}
+        style={FADE_MASK}
+        className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-[38%] text-center [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      >
+        {lines.map((line, i) => {
+          const isActive = i === active
+          const className = `block w-full origin-center rounded-md px-1 py-1.5 text-lg font-bold leading-snug transition-all duration-300 ${
+            isActive ? 'scale-105 text-ink' : i < active ? 'text-white/30' : 'text-white/50'
+          }`
+          const text = line.text || '♪'
+          return seekable ? (
+            <button
+              key={i}
+              type="button"
+              data-line={i}
+              aria-current={isActive ? 'true' : undefined}
+              onClick={() => seekTo(line.time)}
+              className={`${className} focus-ring`}
+            >
+              {text}
+            </button>
+          ) : (
+            <p key={i} data-line={i} aria-current={isActive ? 'true' : undefined} className={className}>
+              {text}
+            </p>
+          )
+        })}
+        <p className="pt-6 text-[11px] text-ink-faint">Lirik dari LRCLIB</p>
+      </div>
+      <div className="flex shrink-0 items-center justify-center gap-1.5 pb-2 text-[11px] text-ink-muted">
+        {timingWarn && <span role="status">Waktu kurang pas.</span>}
         <button
           type="button"
           onClick={() => setOffset((v) => Math.round((v - OFFSET_STEP_S) * 10) / 10)}
           aria-label="Lirik lebih lambat 0,5 detik"
-          className="h-8 rounded-full border border-white/20 px-3 focus-ring active:bg-white/10"
+          className="h-7 rounded-full border border-white/20 px-2.5 focus-ring active:bg-white/10"
         >
-          Lebih lambat
+          Lambat
         </button>
-        <span className="min-w-[3.5rem] tabular-nums" aria-live="polite">
+        <span className="min-w-[3rem] tabular-nums" aria-live="polite">
           {offset > 0 ? '+' : ''}
           {offset.toFixed(1)} dtk
         </span>
@@ -161,9 +167,9 @@ function SyncedLyrics({ lines, lyricsDuration }: { lines: { time: number; text: 
           type="button"
           onClick={() => setOffset((v) => Math.round((v + OFFSET_STEP_S) * 10) / 10)}
           aria-label="Lirik lebih cepat 0,5 detik"
-          className="h-8 rounded-full border border-white/20 px-3 focus-ring active:bg-white/10"
+          className="h-7 rounded-full border border-white/20 px-2.5 focus-ring active:bg-white/10"
         >
-          Lebih cepat
+          Cepat
         </button>
       </div>
     </div>
