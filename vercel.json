@@ -1,0 +1,6 @@
+{
+  "rewrites": [
+    { "source": "/nexa/:path*", "destination": "https://api.nexadev.my.id/:path*" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}
