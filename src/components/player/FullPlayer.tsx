@@ -1,5 +1,5 @@
 import { AlertCircle, ChevronDown, Mic2 } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type TouchEvent } from 'react'
 import { useLibrary } from '../../context/LibraryContext'
 import { useAudioPlayer } from '../../hooks/useAudioPlayer'
 import { useLyrics } from '../../hooks/useLyrics'
@@ -28,6 +28,24 @@ export default function FullPlayer({ onClose, onOpenQueue }: { onClose: () => vo
   // Tampilan tengah: sampul atau lirik. Lirik baru diminta ke server saat tampilannya dibuka.
   const [showLyrics, setShowLyrics] = useState(false)
   const [timerOpen, setTimerOpen] = useState(false)
+  // Geser di area sampul/lirik: sampul digeser ke atas atau samping -> lirik; di lirik, geser samping -> kembali ke sampul.
+  const swipeStart = useRef<{ x: number; y: number } | null>(null)
+  const onSwipeStart = (event: TouchEvent) => {
+    const t = event.touches[0]
+    swipeStart.current = t ? { x: t.clientX, y: t.clientY } : null
+  }
+  const onSwipeEnd = (event: TouchEvent) => {
+    const start = swipeStart.current
+    swipeStart.current = null
+    const t = event.changedTouches[0]
+    if (!start || !t) return
+    const dx = t.clientX - start.x
+    const dy = t.clientY - start.y
+    const horizontal = Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5
+    const up = dy < -50 && Math.abs(dy) > Math.abs(dx) * 1.5
+    if (horizontal) setShowLyrics((value) => !value)
+    else if (up && !showLyrics) setShowLyrics(true)
+  }
   // Lirik dicari untuk lagu yang BENAR-BENAR terdengar: jika server memberi audio lagu lain, pakai datanya.
   const lyricsTrack = useMemo(() => {
     if (!currentTrack) return null
@@ -100,7 +118,7 @@ export default function FullPlayer({ onClose, onOpenQueue }: { onClose: () => vo
         </header>
 
         {/* Slot tengah: sampul, atau (saat lirik dibuka) lirik tanpa latar, lebih lebar dan tinggi. */}
-        <div className="flex flex-1 items-center justify-center py-4">
+        <div onTouchStart={onSwipeStart} onTouchEnd={onSwipeEnd} className="flex flex-1 items-center justify-center py-4">
           {showLyrics ? (
             <div className="h-[min(46dvh,30rem)] min-h-[16rem] w-full animate-lyrics-up">
               <LyricsPanel state={lyrics} onRetry={retryLyrics} />

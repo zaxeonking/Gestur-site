@@ -6,6 +6,7 @@ import type {
   SpotifyApiPlaylistResponse,
   SpotifyApiTrack,
 } from '../types/spotify'
+import { scoreCandidate } from '../utils/matchTrack'
 import { extractSpotifyTrackLink, extractTrackId, isSafeHttpUrl, validateSpotifyPlaylistUrl } from '../utils/spotifyUrl'
 
 const DEFAULT_BASE_URL = 'https://api.nexadev.my.id'
@@ -607,27 +608,103 @@ export async function searchTrackByLink(
   return info
 }
 
+/** Setelah satu sumber berhasil, sumber lain masih ditunggu sebentar supaya bisa dibandingkan. */
+const COMPARE_GRACE_MS = 2500
+/** Skor yang dianggap pasti cocok: langsung dipakai tanpa menunggu sumber lain. */
+const CONFIDENT_SCORE = 1
+
+interface Source {
+  name: string
+  viaLink: boolean
+  run: (options: FetchPlaylistOptions) => Promise<PlaybackInfo>
+}
+
 /**
- * Info playback untuk pemutaran. Urutan:
- * 1. hasil pencarian yang baru saja dibuat (sekali pakai),
- * 2. API download (kyzz) memakai tautan lagu (akurat), lalu NexaDev /api/spotify sebagai cadangannya,
- * 3. cadangan terakhir: cari lewat judul (kurang akurat) jika lagu tidak punya tautan atau keduanya gagal.
+ * Info playback untuk pemutaran. SEMUA sumber dipanggil bersamaan:
+ *  - kyzz (tautan lagu), NexaDev /api/spotify (tautan lagu), NexaDev /api/spotifyplay (judul + artis).
+ * Hasilnya dinilai terhadap data lagu di playlist (judul, artis, durasi, tautan) dan dipakai yang paling
+ * cocok. Hasil yang pasti cocok langsung dipakai; jika tidak, sumber lain ditunggu hingga
+ * COMPARE_GRACE_MS setelah hasil pertama. Hasil pencarian yang baru dibuat (sekali pakai) dipakai lebih dulu.
  */
 export async function fetchPlaybackInfo(
-  track: { title: string; url?: string },
+  track: { title: string; url?: string; artists?: string; duration?: string },
   options: FetchPlaylistOptions = {},
 ): Promise<PlaybackInfo> {
   const handed = takeHandoff(handoffKey(track.title, track.url))
   if (handed) return handed
 
+  const external = options.signal
+  if (external?.aborted) throw new SpotifyApiError('aborted', 'Permintaan dibatalkan.')
+
   const link = extractSpotifyTrackLink(track.url ?? '')
+  const titleQuery = [track.title, track.artists?.split(/\s*[,&;]\s*/)[0]].filter(Boolean).join(' ')
+  const sources: Source[] = []
   if (link) {
-    try {
-      return await requestByLink(link, options)
-    } catch (error) {
-      if (error instanceof SpotifyApiError && error.code === 'aborted') throw error
-      console.warn('[MusicVerse] Semua API tautan gagal, memakai pencarian judul (kurang akurat):', error)
-    }
+    sources.push({ name: 'kyzz', viaLink: true, run: (o) => requestDownload(link, o) })
+    sources.push({ name: 'nexa-tautan', viaLink: true, run: (o) => requestTrack(link, o) })
   }
-  return requestPlayback(track.title, options)
+  sources.push({ name: 'nexa-judul', viaLink: false, run: (o) => requestPlayback(titleQuery, o) })
+
+  const wanted = { title: track.title, artists: track.artists ?? '', duration: track.duration ?? '', url: track.url }
+  const inner = new AbortController()
+  const onExternalAbort = () => inner.abort()
+  external?.addEventListener('abort', onExternalAbort, { once: true })
+
+  return new Promise<PlaybackInfo>((resolve, reject) => {
+    const results: Array<{ name: string; info: PlaybackInfo; score: number; order: number }> = []
+    const errors: unknown[] = []
+    let pending = sources.length
+    let done = false
+    let graceTimer: ReturnType<typeof setTimeout> | undefined
+
+    const finish = (action: () => void) => {
+      if (done) return
+      done = true
+      clearTimeout(graceTimer)
+      external?.removeEventListener('abort', onExternalAbort)
+      inner.abort() // batalkan sumber yang masih berjalan
+      action()
+    }
+    const pickBest = () => {
+      // Skor sama: sumber yang lebih awal di daftar (kyzz) menang.
+      const best = results.reduce((a, b) => (b.score > a.score ? b : a))
+      console.info(
+        '[MusicVerse] Kandidat audio:',
+        results.map((r) => `${r.name}=${r.score.toFixed(2)}`).join(', '),
+        '→ dipakai:',
+        best.name,
+      )
+      resolve({ ...best.info, source: best.name })
+    }
+    const settleAll = () => {
+      if (results.length > 0) return pickBest()
+      const real = errors.find((e) => !(e instanceof SpotifyApiError && e.code === 'aborted'))
+      reject(real ?? errors[0] ?? new SpotifyApiError('aborted', 'Permintaan dibatalkan.'))
+    }
+
+    external?.addEventListener('abort', () => finish(() => reject(new SpotifyApiError('aborted', 'Permintaan dibatalkan.'))), { once: true })
+
+    sources.forEach((source, order) => {
+      source
+        .run({ ...options, signal: inner.signal })
+        .then((info) => {
+          if (done) return
+          const score = scoreCandidate(wanted, info, source.viaLink)
+          results.push({ name: source.name, info, score, order })
+          results.sort((a, b) => a.order - b.order)
+          if (score >= CONFIDENT_SCORE) return finish(pickBest)
+          graceTimer ??= setTimeout(() => finish(pickBest), COMPARE_GRACE_MS)
+        })
+        .catch((error: unknown) => {
+          if (done) return
+          console.warn(`[MusicVerse] Sumber ${source.name} gagal:`, error)
+          errors.push(error)
+        })
+        .finally(() => {
+          if (done) return
+          pending -= 1
+          if (pending === 0) finish(settleAll)
+        })
+    })
+  })
 }
