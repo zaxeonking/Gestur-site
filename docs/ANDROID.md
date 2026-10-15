@@ -13,7 +13,7 @@
 | Routing | `createBrowserRouter`, tidak ada deep link; app selalu mulai dari `/` | Rendah. Jika ada masalah saat reload di rute dalam, ganti ke `createHashRouter` |
 | Storage | `localStorage` lewat `safeStorage` (try/catch) | Rendah. Data tersimpan di WebView; hilang jika data aplikasi dihapus |
 | API | `fetch` ke `https://api.nexadev.my.id` (`VITE_API_BASE_URL`) | **Sedang**: origin app menjadi `https://localhost`, jadi butuh CORS dari server atau `CapacitorHttp` (sudah diaktifkan di config, belum teruji) |
-| API download (`app.kyzznekoo.my.id`) | Dipakai untuk memutar lagu lewat tautan Spotify-nya. Di APK diakses langsung (`CapacitorHttp`); CORS-nya belum diuji. Nama parameter (`url`) adalah asumsi, lihat `DOWNLOAD_URL_PARAM` di `spotifyApi.ts` | **Sedang** |
+| API download (`app.kyzznekoo.my.id`) | Cadangan (setelah NexaDev `/api/spotify`) untuk memutar lagu lewat tautan Spotify-nya. Di APK diakses langsung (`CapacitorHttp`); CORS-nya belum diuji. Nama parameter (`url`) adalah asumsi, lihat `DOWNLOAD_URL_PARAM` di `spotifyApi.ts` | **Sedang** |
 | Proxy Vite `/nexa` | Hanya ada di dev server | **Jangan** set `VITE_API_BASE_URL=/nexa` (atau `/kyzz`) untuk build Android; tidak ada proxy di APK |
 | Audio | Satu `HTMLAudioElement`, tanpa `crossOrigin`, trik `prime()` untuk autoplay | Sedang: URL audio `http://` butuh `allowMixedContent` (sudah diaktifkan) |
 | Audio di latar belakang | Tidak ada MediaSession, foreground service, atau notifikasi kontrol | **Tinggi**: musik bisa berhenti saat layar mati / app di latar belakang. Perlu dites; solusi andal butuh plugin native |

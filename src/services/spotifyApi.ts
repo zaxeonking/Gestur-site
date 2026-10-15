@@ -11,6 +11,8 @@ import { extractSpotifyTrackLink, extractTrackId, isSafeHttpUrl, validateSpotify
 const DEFAULT_BASE_URL = 'https://api.nexadev.my.id'
 const PLAYLIST_PATH = '/api/spotifypl'
 const PLAYBACK_PATH = '/api/spotifyplay'
+/** API utama untuk memutar lagu lewat tautan Spotify-nya (satu penyedia dengan API playlist). */
+const TRACK_PATH = '/api/spotify'
 
 export const DEFAULT_TIMEOUT_MS = 15_000
 /** Endpoint play mencari lagu di sisi server, jadi diberi waktu lebih longgar. */
@@ -21,7 +23,7 @@ function getBaseUrl(): string {
   return (configured || DEFAULT_BASE_URL).replace(/\/+$/, '')
 }
 
-/* API download berbasis URL lagu (akurat 100%: memutar persis lagu yang ditautkan). */
+/* API download berbasis URL lagu (CADANGAN setelah NexaDev; akurat: memutar persis lagu yang ditautkan). */
 const DEFAULT_DOWNLOAD_BASE_URL = 'https://app.kyzznekoo.my.id'
 const DOWNLOAD_PATH = '/api/download/spotify'
 /** Nama parameter query untuk tautan lagu. ASUMSI: `url`. Ubah di sini jika API memakai nama lain. */
@@ -475,6 +477,84 @@ async function requestDownload(trackUrl: string, options: FetchPlaylistOptions =
 }
 
 /* ------------------------------------------------------------------ */
+/* API utama NexaDev: /api/spotify?url={tautan lagu}                   */
+/* ------------------------------------------------------------------ */
+
+export function buildTrackEndpoint(trackUrl: string): string {
+  return `${getBaseUrl()}${TRACK_PATH}?url=${encodeURIComponent(trackUrl)}`
+}
+
+/**
+ * Memeriksa respons /api/spotify. `data.url` = audio penuh (URL bertoken, bisa kedaluwarsa);
+ * `data.preview` = cuplikan ~30 detik (bisa kosong). Jika `url` kosong, `preview` dipakai sebagai audio.
+ * Melempar SpotifyApiError jika tidak ada satu pun URL http(s) yang valid.
+ */
+export function parseTrackResponse(body: unknown, trackUrl: string): PlaybackInfo {
+  if (!isRecord(body)) {
+    throw new SpotifyApiError('invalid_response', 'Respons server bukan objek JSON yang valid.')
+  }
+  if (typeof body.status !== 'boolean') {
+    throw new SpotifyApiError('invalid_response', 'Respons server tidak memiliki field "status".')
+  }
+  if (!body.status) {
+    throw new SpotifyApiError('api', readMessage(body) ?? 'API melaporkan permintaan gagal. Lagu mungkin tidak ditemukan.')
+  }
+  const { data } = body
+  if (!isRecord(data)) {
+    throw new SpotifyApiError('invalid_response', 'Data lagu pada respons tidak lengkap.')
+  }
+
+  const fullUrl = readString(data.url).trim()
+  const previewUrl = readString(data.preview).trim()
+  const fullOk = fullUrl !== '' && isSafeHttpUrl(fullUrl)
+  const previewOk = previewUrl !== '' && isSafeHttpUrl(previewUrl)
+
+  if (!fullOk && !previewOk) {
+    throw new SpotifyApiError(
+      fullUrl || previewUrl ? 'invalid_response' : 'no_audio',
+      fullUrl || previewUrl ? 'URL audio dari server tidak valid.' : 'Server tidak menyediakan audio untuk lagu ini.',
+    )
+  }
+
+  // Judul NexaDev berformat "Judul - Artis"; pakai apa adanya (UI sudah punya judul dari playlist).
+  return {
+    title: readString(data.title),
+    artist: readString(data.artist),
+    album: '',
+    duration: readString(data.duration),
+    cover: readString(data.thumbnail),
+    spotifyUrl: trackUrl,
+    audioUrl: fullOk ? fullUrl : previewUrl,
+    previewUrl: previewOk ? previewUrl : undefined,
+  }
+}
+
+/** Meminta audio + metadata satu lagu ke API utama NexaDev (selalu permintaan baru). */
+async function requestTrack(trackUrl: string, options: FetchPlaylistOptions = {}): Promise<PlaybackInfo> {
+  const { signal, timeoutMs = PLAYBACK_TIMEOUT_MS } = options
+  const body = await requestJson(buildTrackEndpoint(trackUrl), {
+    signal,
+    timeoutMs,
+    httpMessage: playbackHttpMessage,
+  })
+  return parseTrackResponse(body, trackUrl)
+}
+
+/**
+ * Mengambil info audio lewat tautan lagu: NexaDev dulu, lalu API download (cadangan).
+ * Pembatalan (`aborted`) tidak pernah memicu cadangan.
+ */
+async function requestByLink(trackUrl: string, options: FetchPlaylistOptions = {}): Promise<PlaybackInfo> {
+  try {
+    return await requestTrack(trackUrl, options)
+  } catch (error) {
+    if (error instanceof SpotifyApiError && error.code === 'aborted') throw error
+    console.warn('[MusicVerse] API NexaDev /spotify gagal, memakai API download (cadangan):', error)
+  }
+  return requestDownload(trackUrl, options)
+}
+
+/* ------------------------------------------------------------------ */
 /* Hand-off pencarian → pemutaran                                      */
 /* ------------------------------------------------------------------ */
 
@@ -515,14 +595,14 @@ export async function searchTrackByTitle(
   return info
 }
 
-/** Memuat satu lagu lewat tautan Spotify-nya (akurat: lagu persis yang ditautkan). */
+/** Memuat satu lagu lewat tautan Spotify-nya (akurat). Urutan: NexaDev /spotify → API download. */
 export async function searchTrackByLink(
   trackUrl: string,
   options: FetchPlaylistOptions = {},
 ): Promise<PlaybackInfo> {
   const link = extractSpotifyTrackLink(trackUrl)
   if (!link) throw new SpotifyApiError('invalid_url', 'Tautan lagu Spotify tidak valid.')
-  const info = await requestDownload(link, options)
+  const info = await requestByLink(link, options)
   putHandoff(handoffKey(info.title, link), info)
   return info
 }
@@ -530,8 +610,8 @@ export async function searchTrackByLink(
 /**
  * Info playback untuk pemutaran. Urutan:
  * 1. hasil pencarian yang baru saja dibuat (sekali pakai),
- * 2. API download memakai tautan lagu (akurat),
- * 3. cadangan: cari lewat judul (kurang akurat) jika lagu tidak punya tautan atau API download gagal.
+ * 2. NexaDev /api/spotify memakai tautan lagu (akurat), lalu API download sebagai cadangannya,
+ * 3. cadangan terakhir: cari lewat judul (kurang akurat) jika lagu tidak punya tautan atau keduanya gagal.
  */
 export async function fetchPlaybackInfo(
   track: { title: string; url?: string },
@@ -543,10 +623,10 @@ export async function fetchPlaybackInfo(
   const link = extractSpotifyTrackLink(track.url ?? '')
   if (link) {
     try {
-      return await requestDownload(link, options)
+      return await requestByLink(link, options)
     } catch (error) {
       if (error instanceof SpotifyApiError && error.code === 'aborted') throw error
-      console.warn('[MusicVerse] API download gagal, memakai pencarian judul (kurang akurat):', error)
+      console.warn('[MusicVerse] Semua API tautan gagal, memakai pencarian judul (kurang akurat):', error)
     }
   }
   return requestPlayback(track.title, options)

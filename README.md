@@ -60,7 +60,10 @@ Tombol X di form menghapus playlist (termasuk cache).
 
 ## Playback (tahap 4)
 
-Endpoint: `GET {BASE}/api/spotifyplay?q={encodeURIComponent(judul)}` → `data.mp3_url`.
+Urutan sumber audio saat memutar lagu:
+1. `GET {BASE}/api/spotify?url={ENCODED_URL_LAGU}` (NexaDev) → `data.url` (audio penuh; `data.preview` = cuplikan 30 dtk, hanya dipakai bila `url` kosong).
+2. Cadangan: API download `app.kyzznekoo.my.id` (`/api/download/spotify?url=`).
+3. Cadangan terakhir (kurang akurat): `GET {BASE}/api/spotifyplay?q={encodeURIComponent(judul)}` → `data.mp3_url`.
 
 - **Satu engine.** `services/audioEngine.ts` memegang satu `HTMLAudioElement`. `AudioPlayerProvider`
   (di dalam `PlaylistProvider`) memanggil `useAudioPlayerController` sekali. Komponen cukup memakai

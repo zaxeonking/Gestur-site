@@ -2,7 +2,7 @@
 // vercel.json: /nexa/<path>  -> /api/proxy?upstream=nexa&path=<path>
 //              /kyzz/<path>  -> /api/proxy?upstream=kyzz&path=<path>
 const UPSTREAMS = {
-  nexa: { base: 'https://api.nexadev.my.id', allowed: ['api/spotifypl', 'api/spotifyplay'] },
+  nexa: { base: 'https://api.nexadev.my.id', allowed: ['api/spotifypl', 'api/spotifyplay', 'api/spotify'] },
   kyzz: { base: 'https://app.kyzznekoo.my.id', allowed: ['api/download/spotify'] },
 }
 const TIMEOUT_MS = 25000
