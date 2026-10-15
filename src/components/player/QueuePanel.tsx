@@ -1,5 +1,5 @@
 import { AlertCircle, ListMusic, Loader2, Pause, Play, RotateCw, X } from 'lucide-react'
-import { memo, useCallback, useEffect, useMemo, useRef, type KeyboardEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { useAudioPlayer } from '../../hooks/useAudioPlayer'
 import type { PlaylistTrack } from '../../types/spotify'
 import { fallbackCover } from '../../utils/fallbackCover'
@@ -7,6 +7,8 @@ import { getUpcomingTracks } from '../../utils/playerQueue'
 import { STATUS_TEXT } from '../../utils/playerStatus'
 import CoverArt from '../ui/CoverArt'
 import { describeMainButton } from './PlayerControls'
+import TrackActionSheet from './TrackActionSheet'
+import UpcomingList from './UpcomingList'
 
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])'
 const FOCUS = 'focus-ring'
@@ -16,55 +18,30 @@ function TrackCover({ track }: { track: PlaylistTrack }) {
   return <CoverArt cover={fallback} src={track.cover} />
 }
 
-interface UpcomingRowProps {
-  track: PlaylistTrack
-  /** Posisi lagu di dalam queue (bukan posisi di daftar "Berikutnya"). */
-  index: number
-  onPlay: (index: number) => void
-}
-
-/** Satu lagu di "Berikutnya". Menekannya langsung memutar lagu itu dan queue ikut maju ke posisinya. */
-const UpcomingRow = memo(function UpcomingRow({ track, index, onPlay }: UpcomingRowProps) {
-  const by = track.artists ? ` oleh ${track.artists}` : ''
-  return (
-    <li>
-      <button
-        type="button"
-        onClick={() => onPlay(index)}
-        aria-label={`Putar ${track.title}${by}`}
-        className={`group flex w-full items-center gap-3 rounded-md px-2 py-2 text-left transition-colors hover:bg-raised active:bg-raised ${FOCUS}`}
-      >
-        <span className="w-6 shrink-0 text-center text-sm tabular-nums text-ink-muted" aria-hidden="true">
-          {index + 1}
-        </span>
-        <span className="w-11 shrink-0">
-          <TrackCover track={track} />
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-medium text-ink">{track.title}</span>
-          <span className="block truncate text-xs text-ink-muted">{track.artists}</span>
-        </span>
-        {track.duration && <span className="shrink-0 text-xs tabular-nums text-ink-muted">{track.duration}</span>}
-        <Play
-          className="h-4 w-4 shrink-0 text-ink-muted transition-colors group-hover:text-accent"
-          fill="currentColor"
-          aria-hidden="true"
-        />
-      </button>
-    </li>
-  )
-})
-
 /**
  * Tampilan Queue: lagu yang sedang diputar + lagu-lagu berikutnya. Hanya membaca `queue` dan
  * `currentIndex` dari state pemutar yang sama dengan MiniPlayer/FullPlayer, jadi ketiganya
  * selalu sinkron. Mobile: bottom sheet. Desktop (lg): panel di sisi kanan.
  */
 export default function QueuePanel({ onClose }: { onClose: () => void }) {
-  const { queue, currentIndex, currentTrack, status, error, shuffle, shuffleOrder, togglePlayPause, playQueueItem } =
-    useAudioPlayer()
+  const {
+    queue,
+    currentIndex,
+    currentTrack,
+    status,
+    error,
+    shuffle,
+    shuffleOrder,
+    togglePlayPause,
+    playQueueItem,
+    moveUpcoming,
+    removeUpcoming,
+  } = useAudioPlayer()
   const dialogRef = useRef<HTMLDivElement>(null)
   const closeRef = useRef<HTMLButtonElement>(null)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  // Menu opsi memakai id lagu (bukan posisi) supaya tetap benar bila antrean berubah saat menu terbuka.
+  const [menuTrackId, setMenuTrackId] = useState<string | null>(null)
 
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null
@@ -81,6 +58,27 @@ export default function QueuePanel({ onClose }: { onClose: () => void }) {
     () => getUpcomingTracks(queue, currentIndex, shuffleOrder),
     [queue, currentIndex, shuffleOrder],
   )
+
+  const menuPosition = menuTrackId === null ? -1 : upcoming.findIndex((item) => item.track.id === menuTrackId)
+  const menuItem = menuPosition === -1 ? null : upcoming[menuPosition]
+
+  // Lagu di menu sudah tidak ada di "Berikutnya" (mis. jadi lagu aktif): tutup menunya.
+  useEffect(() => {
+    if (menuTrackId !== null && menuPosition === -1) setMenuTrackId(null)
+  }, [menuTrackId, menuPosition])
+
+  const openMenu = useCallback(
+    (position: number) => {
+      const item = upcoming[position]
+      if (item) setMenuTrackId(item.track.id)
+    },
+    [upcoming],
+  )
+
+  const closeMenu = useCallback(() => {
+    setMenuTrackId(null)
+    dialogRef.current?.focus()
+  }, [])
 
   // Baris yang diklik pindah ke "Sedang diputar" (ter-unmount), sehingga fokus jatuh ke <body> dan
   // Esc/Tab tidak lagi sampai ke dialog. Fokus dikembalikan ke dialog agar keyboard tetap berfungsi.
@@ -150,7 +148,7 @@ export default function QueuePanel({ onClose }: { onClose: () => void }) {
           </button>
         </header>
 
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pb-[max(1rem,env(safe-area-inset-bottom))]">
+        <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pb-[max(1rem,env(safe-area-inset-bottom))]">
           <section aria-label="Sedang diputar">
             <h3 className="px-2 pb-1 pt-2 text-sm font-semibold text-ink-muted">
               Sedang diputar
@@ -201,15 +199,42 @@ export default function QueuePanel({ onClose }: { onClose: () => void }) {
                 Tidak ada lagu berikutnya. Ini lagu terakhir di antrean.
               </p>
             ) : (
-              <ul data-queue-upcoming="">
-                {upcoming.map(({ track, index }) => (
-                  <UpcomingRow key={track.id} track={track} index={index} onPlay={handlePlayItem} />
-                ))}
-              </ul>
+              <UpcomingList
+                items={upcoming}
+                scrollRef={scrollRef}
+                onPlay={handlePlayItem}
+                onOpenMenu={openMenu}
+                onMove={moveUpcoming}
+              />
             )}
           </section>
         </div>
       </div>
+
+      {menuItem && (
+        <TrackActionSheet
+          track={menuItem.track}
+          position={menuPosition}
+          count={upcoming.length}
+          onPlayNow={() => {
+            setMenuTrackId(null)
+            handlePlayItem(menuItem.index)
+          }}
+          onPlayNext={() => {
+            moveUpcoming(menuPosition, 0)
+            closeMenu()
+          }}
+          onMoveToEnd={() => {
+            moveUpcoming(menuPosition, upcoming.length - 1)
+            closeMenu()
+          }}
+          onRemove={() => {
+            removeUpcoming(menuPosition)
+            closeMenu()
+          }}
+          onClose={closeMenu}
+        />
+      )}
     </div>
   )
 }

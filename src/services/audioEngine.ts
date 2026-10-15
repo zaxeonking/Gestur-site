@@ -69,7 +69,9 @@ const SILENT_SRC = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAI
  * Stream langsung (durasi Infinity) atau server tanpa dukungan Range tidak lolos.
  */
 export function isSeekable(audio: HTMLAudioElement): boolean {
-  if (!Number.isFinite(audio.duration) || audio.duration <= 0) return false
+  // Durasi NaN = metadata belum dimuat. Durasi Infinity (stream tanpa Content-Length) tetap boleh
+  // di-seek selama browser melaporkan rentang `seekable`; batas akhirnya dijepit di `seek()`.
+  if (Number.isNaN(audio.duration) || audio.duration <= 0) return false
   const { seekable } = audio
   return seekable.length > 0 && seekable.end(seekable.length - 1) > 0
 }

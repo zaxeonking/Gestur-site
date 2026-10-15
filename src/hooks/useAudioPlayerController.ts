@@ -20,7 +20,10 @@ import {
   hasPrevious,
   isOrderUsable,
   isValidIndex,
+  moveUpcomingTrack,
   NO_TRACKS,
+  removeUpcomingTrack,
+  type QueueEdit,
   resolveQueueForPlayAll,
   resolveQueueForTrack,
 } from '../utils/playerQueue'
@@ -442,6 +445,30 @@ export function useAudioPlayerController(playlistTracks: PlaylistTrack[]) {
     [playAt],
   )
 
+  /** Menyimpan hasil pengubahan antrean; lagu yang sedang diputar tidak disentuh. */
+  const applyQueueEdit = useCallback(
+    (edit: QueueEdit | null) => {
+      if (edit) commit({ queue: edit.queue, currentIndex: edit.currentIndex, shuffleOrder: edit.shuffleOrder })
+    },
+    [commit],
+  )
+
+  const moveUpcoming = useCallback(
+    (from: number, to: number) => {
+      const { queue, currentIndex, shuffleOrder } = stateRef.current
+      applyQueueEdit(moveUpcomingTrack(queue, currentIndex, shuffleOrder, from, to))
+    },
+    [applyQueueEdit],
+  )
+
+  const removeUpcoming = useCallback(
+    (position: number) => {
+      const { queue, currentIndex, shuffleOrder } = stateRef.current
+      applyQueueEdit(removeUpcomingTrack(queue, currentIndex, shuffleOrder, position))
+    },
+    [applyQueueEdit],
+  )
+
   const playPrevious = useCallback(() => {
     const { queue, currentIndex, status, shuffleOrder } = stateRef.current
     const { currentTime, seekable } = timeRef.current
@@ -505,6 +532,8 @@ export function useAudioPlayerController(playlistTracks: PlaylistTrack[]) {
       selectTrack,
       playAll,
       playQueueItem,
+      moveUpcoming,
+      removeUpcoming,
       togglePlayPause,
       playNext,
       playPrevious,
@@ -519,6 +548,8 @@ export function useAudioPlayerController(playlistTracks: PlaylistTrack[]) {
       selectTrack,
       playAll,
       playQueueItem,
+      moveUpcoming,
+      removeUpcoming,
       togglePlayPause,
       playNext,
       playPrevious,

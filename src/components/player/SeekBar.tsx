@@ -33,6 +33,7 @@ export default function SeekBar({ size = 'md', className = '' }: SeekBarProps) {
 
   const statusAllowsSeek = status === 'playing' || status === 'buffering' || status === 'paused'
   const canSeek = seekable && statusAllowsSeek && duration !== null && duration > 0
+  const maxValue = duration ?? 0
   useEffect(() => {
     if (!canSeek) setDragValue(null)
   }, [canSeek])
@@ -83,17 +84,19 @@ export default function SeekBar({ size = 'md', className = '' }: SeekBarProps) {
               aria-labelledby={labelId}
               aria-valuetext={timeText}
               min={0}
-              max={duration ?? 0}
-              step={1}
+              max={maxValue}
+              step={0.25}
               value={shown}
               onChange={(e) => setDragValue(Number(e.target.value))}
               onPointerUp={commit}
               onPointerCancel={commit}
+              onTouchEnd={commit}
+              onMouseUp={commit}
               onKeyUp={(e: KeyboardEvent<HTMLInputElement>) => {
                 if (e.key.startsWith('Arrow') || e.key === 'Home' || e.key === 'End' || e.key.startsWith('Page')) commit()
               }}
               onBlur={commit}
-              className="absolute inset-0 h-full w-full cursor-pointer opacity-0 focus-visible:outline-none [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:w-3 [&::-moz-range-track]:bg-transparent [&::-webkit-slider-runnable-track]:bg-transparent [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow"
+              className="absolute inset-0 h-full w-full cursor-pointer touch-none opacity-0 focus-visible:outline-none [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:w-3 [&::-moz-range-track]:bg-transparent [&::-webkit-slider-runnable-track]:bg-transparent [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow"
             />
           </>
         ) : (

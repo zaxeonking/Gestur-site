@@ -107,6 +107,13 @@ export interface AudioPlayerActions {
    * Dipakai tampilan Queue. Indeks di luar queue diabaikan.
    */
   playQueueItem: (index: number) => void
+  /**
+   * Memindahkan lagu di daftar "Berikutnya" dari posisi `from` ke `to` (0 = tepat setelah lagu aktif).
+   * Lagu yang sedang diputar tidak terganggu.
+   */
+  moveUpcoming: (from: number, to: number) => void
+  /** Menghapus lagu di posisi `position` pada daftar "Berikutnya" dari antrean. */
+  removeUpcoming: (position: number) => void
   togglePlayPause: () => void
   /** Memutar lagu berikutnya di queue. Tidak melakukan apa pun jika sudah di akhir. */
   playNext: () => void

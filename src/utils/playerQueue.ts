@@ -109,3 +109,76 @@ export function getUpcomingTracks(
 export function resolveQueueForPlayAll(tracks: readonly PlaylistTrack[]): ResolvedQueue | null {
   return tracks.length > 0 ? { tracks, index: 0 } : null
 }
+
+/* ------------------------------------------------------------------ */
+/* Mengubah isi antrean                                                */
+/* ------------------------------------------------------------------ */
+
+/** Hasil pengubahan antrean: ketiganya harus disimpan bersama agar posisi playback tetap sinkron. */
+export interface QueueEdit {
+  queue: readonly PlaylistTrack[]
+  currentIndex: number
+  shuffleOrder: readonly number[] | null
+}
+
+/** Urutan putar sebagai daftar indeks queue (urutan acak bila aktif, selain itu 0..n-1). */
+function getPlayOrder(length: number, index: number, order: ShuffleOrder): { base: number[]; shuffled: boolean } {
+  if (isOrderUsable(order, length, index)) return { base: [...order], shuffled: true }
+  return { base: Array.from({ length }, (_, i) => i), shuffled: false }
+}
+
+/**
+ * Menyusun ulang queue mengikuti urutan putar baru. Mode acak tetap aktif: urutannya menjadi
+ * 0..n-1 pada queue baru, jadi urutan yang diatur pengguna dihormati, bukan diacak ulang.
+ */
+function rebuildQueue(
+  tracks: readonly PlaylistTrack[],
+  playOrder: readonly number[],
+  current: number,
+  shuffled: boolean,
+): QueueEdit {
+  const queue = playOrder.map((i) => tracks[i])
+  return {
+    queue,
+    currentIndex: playOrder.indexOf(current),
+    shuffleOrder: shuffled ? queue.map((_, i) => i) : null,
+  }
+}
+
+/**
+ * Memindahkan satu lagu di daftar "Berikutnya". `from`/`to` adalah posisi di daftar itu
+ * (0 = tepat setelah lagu aktif), sama dengan urutan yang dilihat pengguna. null = tidak ada perubahan.
+ */
+export function moveUpcomingTrack(
+  tracks: readonly PlaylistTrack[],
+  index: number | null,
+  order: ShuffleOrder,
+  from: number,
+  to: number,
+): QueueEdit | null {
+  if (!isValidIndex(tracks, index)) return null
+  const { base, shuffled } = getPlayOrder(tracks.length, index, order)
+  const head = base.slice(0, base.indexOf(index) + 1)
+  const upcoming = base.slice(head.length)
+  if (!Number.isInteger(from) || !Number.isInteger(to) || from === to) return null
+  if (from < 0 || from >= upcoming.length || to < 0 || to >= upcoming.length) return null
+  const [moved] = upcoming.splice(from, 1)
+  upcoming.splice(to, 0, moved)
+  return rebuildQueue(tracks, [...head, ...upcoming], index, shuffled)
+}
+
+/** Menghapus satu lagu dari daftar "Berikutnya" (posisi seperti `moveUpcomingTrack`). Lagu aktif tidak bisa dihapus. */
+export function removeUpcomingTrack(
+  tracks: readonly PlaylistTrack[],
+  index: number | null,
+  order: ShuffleOrder,
+  position: number,
+): QueueEdit | null {
+  if (!isValidIndex(tracks, index)) return null
+  const { base, shuffled } = getPlayOrder(tracks.length, index, order)
+  const head = base.slice(0, base.indexOf(index) + 1)
+  const upcoming = base.slice(head.length)
+  if (!Number.isInteger(position) || position < 0 || position >= upcoming.length) return null
+  upcoming.splice(position, 1)
+  return rebuildQueue(tracks, [...head, ...upcoming], index, shuffled)
+}
