@@ -8,6 +8,7 @@ import type {
   PlaybackTime,
   PlayerErrorCode,
   PlayerQueueState,
+  QueueAddOptions,
   QueueAddResult,
   RepeatMode,
 } from '../types/player'
@@ -17,6 +18,7 @@ import {
   createShuffleOrder,
   getNextIndex,
   getPreviousIndex,
+  canRestartQueue,
   hasNext,
   hasPrevious,
   insertUpcomingTrack,
@@ -24,6 +26,7 @@ import {
   isValidIndex,
   moveUpcomingTrack,
   NO_TRACKS,
+  pickRestartIndex,
   removeUpcomingTrack,
   type QueueEdit,
   resolveQueueForPlayAll,
@@ -111,6 +114,9 @@ export function useAudioPlayerController(playlistTracks: PlaylistTrack[]) {
   // True saat lagu sedang di putaran ulang ke-2 (mode `once`).
   const [repeatingOnce, setRepeatingOnce] = useState(false)
   const prefsRef = useRef(prefs)
+  // Sleep timer "akhir lagu": ref dibaca handler `ended`, state hanya untuk tampilan.
+  const [stopAfterTrack, setStopAfterTrackState] = useState(false)
+  const stopAfterTrackRef = useRef(false)
   // Sudah mengulang 1x untuk lagu ini? Direset setiap lagu baru dimulai.
   const replayedRef = useRef(false)
 
@@ -122,6 +128,8 @@ export function useAudioPlayerController(playlistTracks: PlaylistTrack[]) {
   }, [playlistTracks])
   // Diisi setelah `playAt` didefinisikan; dipakai handler event `ended` untuk auto-next.
   const playAtRef = useRef<(index: number) => void>(() => {})
+  // Antrean habis: putar ulang antrean yang sama secara acak. Diisi setelah `updatePrefs` didefinisikan.
+  const restartQueueRef = useRef<() => void>(() => {})
   // Memutar ulang lagu aktif tanpa meminta URL baru (tanpa jeda); dipakai mode ulang.
   const replayCurrentRef = useRef<() => void>(() => {})
   const timeRef = useRef<PlaybackTime>(initialTime)
@@ -207,6 +215,18 @@ export function useAudioPlayerController(playlistTracks: PlaylistTrack[]) {
           break
         case 'ended': {
           clearStartTimer()
+          // Sleep timer "akhir lagu": berhenti di sini, apa pun mode ulang/antreannya.
+          if (stopAfterTrackRef.current) {
+            stopAfterTrackRef.current = false
+            setStopAfterTrackState(false)
+            setStatus('ended')
+            updateTime((prev) => ({
+              currentTime: event.duration ?? prev.currentTime,
+              duration: event.duration ?? prev.duration,
+              seekable: event.seekable,
+            }))
+            break
+          }
           const { queue, currentIndex, shuffleOrder } = stateRef.current
           const { repeat } = prefsRef.current
           // Ulang lagu yang sama: terus-menerus (`one`) atau tepat 1x (`once`), lalu lanjut.
@@ -222,6 +242,12 @@ export function useAudioPlayerController(playlistTracks: PlaylistTrack[]) {
           const next = getNextIndex(queue, currentIndex, shuffleOrder)
           if (next !== null) {
             playAtRef.current(next)
+            break
+          }
+          // Antrean habis: putar ulang antrean YANG SAMA secara acak (tidak menarik lagu dari playlist lain).
+          // Antrean berisi satu lagu tidak diulang otomatis; berhenti `ended` seperti biasa.
+          if (canRestartQueue(queue.length)) {
+            restartQueueRef.current()
             break
           }
           setStatus('ended')
@@ -352,6 +378,15 @@ export function useAudioPlayerController(playlistTracks: PlaylistTrack[]) {
     [startPlayback],
   )
 
+  const pause = useCallback(() => {
+    if (ACTIVE_STATUSES.includes(stateRef.current.status)) audioEngine.pause() // status berubah lewat event `pause`
+  }, [])
+
+  const setStopAfterTrack = useCallback((enabled: boolean) => {
+    stopAfterTrackRef.current = enabled
+    setStopAfterTrackState(enabled)
+  }, [])
+
   const togglePlayPause = useCallback(() => {
     const { status, queue, currentIndex } = stateRef.current
     switch (status) {
@@ -400,6 +435,8 @@ export function useAudioPlayerController(playlistTracks: PlaylistTrack[]) {
     controllerRef.current = null
     clearStartTimer()
     audioEngine.stop()
+    stopAfterTrackRef.current = false
+    setStopAfterTrackState(false)
     if (stateRef.current !== initialState) {
       stateRef.current = initialState
       setState(initialState)
@@ -476,13 +513,15 @@ export function useAudioPlayerController(playlistTracks: PlaylistTrack[]) {
    * menjadi awal antrean. Jika antrean ada tetapi sudah selesai/error, lagu tetap masuk "Berikutnya".
    */
   const enqueue = useCallback(
-    (track: PlaylistTrack, where: 'next' | 'end'): QueueAddResult => {
+    (track: PlaylistTrack, where: 'next' | 'end', options?: QueueAddOptions): QueueAddResult => {
       const { queue, currentIndex, shuffleOrder, currentTrack } = stateRef.current
       if (!isValidIndex(queue, currentIndex) || !currentTrack) {
         startPlayback([track], 0)
         return 'started'
       }
       if (queue[currentIndex].id === track.id) return 'current'
+      // Antrean tidak dicampur: lagu yang belum ada di antrean ini hanya boleh masuk dari hasil pencarian.
+      if (!options?.fromSearch && !queue.some((item) => item.id === track.id)) return 'blocked'
       const before = queue.length
       const edit = insertUpcomingTrack(queue, currentIndex, shuffleOrder, track, where)
       if (!edit) return 'duplicate'
@@ -491,8 +530,14 @@ export function useAudioPlayerController(playlistTracks: PlaylistTrack[]) {
     },
     [applyQueueEdit, startPlayback],
   )
-  const addToQueue = useCallback((track: PlaylistTrack) => enqueue(track, 'end'), [enqueue])
-  const playNextInQueue = useCallback((track: PlaylistTrack) => enqueue(track, 'next'), [enqueue])
+  const addToQueue = useCallback(
+    (track: PlaylistTrack, options?: QueueAddOptions) => enqueue(track, 'end', options),
+    [enqueue],
+  )
+  const playNextInQueue = useCallback(
+    (track: PlaylistTrack, options?: QueueAddOptions) => enqueue(track, 'next', options),
+    [enqueue],
+  )
 
   const playPrevious = useCallback(() => {
     const { queue, currentIndex, status, shuffleOrder } = stateRef.current
@@ -542,6 +587,22 @@ export function useAudioPlayerController(playlistTracks: PlaylistTrack[]) {
     })
   }, [commit, updatePrefs])
 
+  /**
+   * Antrean sudah habis: mulai lagi dari antrean yang sama dengan urutan acak baru. Isi antrean tidak
+   * berubah (tidak ada lagu dari playlist lain yang masuk). Mode acak dinyalakan agar tombolnya
+   * sesuai dengan yang sedang terjadi.
+   */
+  const restartQueue = useCallback(() => {
+    const { queue, currentIndex } = stateRef.current
+    if (!canRestartQueue(queue.length)) return
+    if (!prefsRef.current.shuffle) updatePrefs({ shuffle: true })
+    // Acak aktif dan keepOrder tidak diberikan, jadi startPlayback membuat urutan acak baru dari lagu ini.
+    startPlayback(queue, pickRestartIndex(queue.length, currentIndex))
+  }, [startPlayback, updatePrefs])
+  useEffect(() => {
+    restartQueueRef.current = restartQueue
+  }, [restartQueue])
+
   const cycleRepeat = useCallback(() => {
     const next = REPEAT_CYCLE[prefsRef.current.repeat]
     updatePrefs({ repeat: next })
@@ -562,6 +623,8 @@ export function useAudioPlayerController(playlistTracks: PlaylistTrack[]) {
       addToQueue,
       playNextInQueue,
       togglePlayPause,
+      pause,
+      setStopAfterTrack,
       playNext,
       playPrevious,
       toggleShuffle,
@@ -580,6 +643,8 @@ export function useAudioPlayerController(playlistTracks: PlaylistTrack[]) {
       addToQueue,
       playNextInQueue,
       togglePlayPause,
+      pause,
+      setStopAfterTrack,
       playNext,
       playPrevious,
       toggleShuffle,
@@ -599,8 +664,9 @@ export function useAudioPlayerController(playlistTracks: PlaylistTrack[]) {
       shuffle,
       repeat,
       repeatingOnce: repeat === 'once' && repeatingOnce,
+      stopAfterTrack,
     }),
-    [queue, currentIndex, shuffleOrder, shuffle, repeat, repeatingOnce],
+    [queue, currentIndex, shuffleOrder, shuffle, repeat, repeatingOnce, stopAfterTrack],
   )
 
   return { state, time, queueState, actions }

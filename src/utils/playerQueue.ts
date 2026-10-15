@@ -43,6 +43,22 @@ export function isOrderUsable(order: ShuffleOrder, length: number, index: number
   return order !== null && order.length === length && index !== null && order.includes(index)
 }
 
+/**
+ * Lagu pertama saat antrean diputar ulang setelah habis: acak, dan sebisa mungkin bukan lagu yang
+ * baru saja selesai (supaya tidak terdengar mengulang). Antrean berisi satu lagu = 0.
+ */
+export function pickRestartIndex(length: number, avoid: number | null, random: () => number = Math.random): number {
+  if (length <= 1) return 0
+  if (avoid === null || avoid < 0 || avoid >= length) return Math.min(length - 1, Math.floor(random() * length))
+  const pick = Math.min(length - 2, Math.floor(random() * (length - 1)))
+  return pick >= avoid ? pick + 1 : pick
+}
+
+/** Antrean yang habis diputar ulang secara acak hanya jika isinya lebih dari satu lagu. */
+export function canRestartQueue(length: number): boolean {
+  return length > 1
+}
+
 /** Indeks lagu berikutnya, atau null jika sudah di akhir queue (tanpa mengulang dari awal). */
 export function getNextIndex(
   tracks: readonly PlaylistTrack[],

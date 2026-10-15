@@ -18,20 +18,24 @@ const RESULT_TEXT: Record<QueueAddResult, string> = {
   moved: 'Dipindah ke urutan berikutnya',
   duplicate: 'Lagu ini sudah ada di antrean',
   current: 'Lagu ini sedang diputar',
+  blocked: 'Lagu dari luar antrean hanya bisa ditambahkan lewat Cari',
 }
 
 interface TrackMenuSheetProps {
   track: PlaylistTrack
+  /** Lagu ini dibuka dari hasil pencarian, jadi boleh dicampurkan ke antrean yang sedang berjalan. */
+  fromSearch: boolean
   onClose: () => void
   onToast: (message: string) => void
 }
 
 /**
  * Menu opsi untuk satu lagu dari daftar mana pun (playlist, Cari, riwayat), muncul saat baris
- * ditahan lama atau diklik kanan. Lagu di luar playlist aktif juga bisa dimasukkan ke antrean.
+ * ditahan lama atau diklik kanan. Antrean tidak dicampur: lagu di luar antrean yang sedang berjalan
+ * hanya bisa dimasukkan ke antrean jika dibuka dari hasil pencarian (`fromSearch`).
  * Mobile: bottom sheet. Desktop: kartu di tengah bawah.
  */
-export default function TrackMenuSheet({ track, onClose, onToast }: TrackMenuSheetProps) {
+export default function TrackMenuSheet({ track, fromSearch, onClose, onToast }: TrackMenuSheetProps) {
   const player = useAudioPlayer()
   useOverlayHistory(true, onClose)
   const sheetRef = useRef<HTMLDivElement>(null)
@@ -48,6 +52,10 @@ export default function TrackMenuSheet({ track, onClose, onToast }: TrackMenuShe
     [player.queue, player.currentIndex, player.shuffleOrder, track.id],
   )
   const inQueue = upcomingPosition !== -1
+  const belongsToQueue = useMemo(() => player.queue.some((item) => item.id === track.id), [player.queue, track.id])
+  // Tanpa antrean, opsi antrean sekadar memutar lagu ini. Dengan antrean, hanya lagu yang sudah ada di
+  // dalamnya atau hasil pencarian yang boleh ditambahkan/diatur.
+  const canQueue = !hasQueue || fromSearch || belongsToQueue
 
   // Fokus masuk ke menu, dan kembali ke baris asal saat menu ditutup.
   useEffect(() => {
@@ -120,6 +128,12 @@ export default function TrackMenuSheet({ track, onClose, onToast }: TrackMenuShe
           </p>
         )}
 
+        {!canQueue && (
+          <p className="mx-4 mb-2 rounded-md bg-raised px-3 py-2 text-xs text-ink-muted">
+            Antrean sedang berisi lagu dari playlist lain. Cari lagu ini lewat halaman Cari untuk menambahkannya ke antrean.
+          </p>
+        )}
+
         <ul className="border-t border-line px-2 pt-2">
           <Action
             icon={Play}
@@ -129,13 +143,15 @@ export default function TrackMenuSheet({ track, onClose, onToast }: TrackMenuShe
               onClose()
             }}
           />
-          <Action
-            icon={ListEnd}
-            label="Putar berikutnya"
-            hint={hasQueue ? 'Tepat setelah lagu yang sedang diputar' : undefined}
-            onClick={() => run(() => player.playNextInQueue(track))}
-            disabled={isCurrent}
-          />
+          {canQueue && (
+            <Action
+              icon={ListEnd}
+              label="Putar berikutnya"
+              hint={hasQueue ? 'Tepat setelah lagu yang sedang diputar' : undefined}
+              onClick={() => run(() => player.playNextInQueue(track, { fromSearch }))}
+              disabled={isCurrent}
+            />
+          )}
           {inQueue ? (
             <Action
               icon={ListX}
@@ -148,13 +164,15 @@ export default function TrackMenuSheet({ track, onClose, onToast }: TrackMenuShe
               danger
             />
           ) : (
-            <Action
-              icon={ListPlus}
-              label="Tambah ke antrean"
-              hint={hasQueue ? 'Di urutan paling akhir' : undefined}
-              onClick={() => run(() => player.addToQueue(track))}
-              disabled={isCurrent}
-            />
+            canQueue && (
+              <Action
+                icon={ListPlus}
+                label="Tambah ke antrean"
+                hint={hasQueue ? 'Di urutan paling akhir' : undefined}
+                onClick={() => run(() => player.addToQueue(track, { fromSearch }))}
+                disabled={isCurrent}
+              />
+            )
           )}
           {href && <Action icon={Link2} label="Salin tautan Spotify" onClick={() => void copyLink()} />}
           {href && (

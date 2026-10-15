@@ -26,6 +26,11 @@ interface TrackListProps {
   includeAlbum?: boolean
   /** Mengganti empty state bawaan saat `tracks` kosong. */
   emptyState?: ReactNode
+  /**
+   * Daftar ini halaman Cari. Saat kata kunci terisi, lagu hasilnya boleh dicampurkan ke antrean lewat
+   * menu lagu. Tanpa prop ini (mis. playlist) antrean tidak dicampur dengan lagu dari luar.
+   */
+  searchable?: boolean
 }
 
 export default function TrackList({
@@ -37,6 +42,7 @@ export default function TrackList({
   onQueryChange,
   includeAlbum = true,
   emptyState,
+  searchable = false,
 }: TrackListProps) {
   const controlled = controlledQuery !== undefined
   const [innerQuery, setInnerQuery] = useState('')
@@ -152,6 +158,7 @@ export default function TrackList({
                 activity={track.id === playingTrackId ? playbackActivity : 'none'}
                 onSelect={setSelectedId}
                 onPlay={handlePlay}
+                fromSearch={searchable && isFiltering}
               />
             ))}
           </ul>

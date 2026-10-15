@@ -4,8 +4,11 @@ import TrackMenuSheet from '../components/player/TrackMenuSheet'
 import type { PlaylistTrack } from '../types/spotify'
 
 interface TrackMenuApi {
-  /** Membuka menu opsi untuk satu lagu dari daftar mana pun. Identitasnya stabil. */
-  openTrackMenu: (track: PlaylistTrack) => void
+  /**
+   * Membuka menu opsi untuk satu lagu dari daftar mana pun. Identitasnya stabil.
+   * `fromSearch` = baris itu hasil pencarian: hanya dari sana lagu di luar antrean boleh dimasukkan ke antrean.
+   */
+  openTrackMenu: (track: PlaylistTrack, options?: { fromSearch?: boolean }) => void
   /** Menampilkan pesan singkat di bawah layar. */
   showToast: (message: string) => void
 }
@@ -20,12 +23,16 @@ const TOAST_MS = 2400
  * daftar lagu tidak ikut render ulang saat menu dibuka atau ditutup.
  */
 export function TrackMenuProvider({ children }: { children: ReactNode }) {
-  const [track, setTrack] = useState<PlaylistTrack | null>(null)
+  const [menu, setMenu] = useState<{ track: PlaylistTrack; fromSearch: boolean } | null>(null)
   const [toast, setToast] = useState<{ id: number; message: string } | null>(null)
   const toastTimer = useRef<number | null>(null)
 
-  const openTrackMenu = useCallback((next: PlaylistTrack) => setTrack(next), [])
-  const closeMenu = useCallback(() => setTrack(null), [])
+  const openTrackMenu = useCallback(
+    (next: PlaylistTrack, options?: { fromSearch?: boolean }) =>
+      setMenu({ track: next, fromSearch: options?.fromSearch === true }),
+    [],
+  )
+  const closeMenu = useCallback(() => setMenu(null), [])
 
   const showToast = useCallback((message: string) => {
     if (toastTimer.current !== null) window.clearTimeout(toastTimer.current)
@@ -44,7 +51,9 @@ export function TrackMenuProvider({ children }: { children: ReactNode }) {
   return (
     <TrackMenuContext.Provider value={api}>
       {children}
-      {track && <TrackMenuSheet track={track} onClose={closeMenu} onToast={showToast} />}
+      {menu && (
+        <TrackMenuSheet track={menu.track} fromSearch={menu.fromSearch} onClose={closeMenu} onToast={showToast} />
+      )}
       <div
         role="status"
         aria-live="polite"

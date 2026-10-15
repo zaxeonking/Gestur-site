@@ -199,12 +199,32 @@ Tahan lama (±0,5 detik) atau klik kanan pada baris lagu mana pun (playlist, Car
 membuka menu opsi: **Putar sekarang**, **Putar berikutnya**, **Tambah ke antrean** (berubah jadi
 **Hapus dari antrean** jika lagu sudah ada di sana), **Salin tautan Spotify**, dan **Buka di Spotify**.
 
-- Berlaku juga untuk lagu di luar playlist yang sedang diputar; lagunya ditambahkan ke antrean yang berjalan.
+- Antrean tidak dicampur. Lagu di luar antrean yang sedang berjalan hanya bisa ditambahkan ke antrean
+  jika menunya dibuka dari **hasil pencarian** (halaman Cari dengan kata kunci terisi). Dari baris
+  playlist atau riwayat, opsi antrean untuk lagu asing disembunyikan (aksi `addToQueue` /
+  `playNextInQueue` juga menolak dengan hasil `blocked`). Lagu yang sudah ada di antrean tetap bisa
+  diatur (dipindah ke depan / dihapus).
+- Antrean habis: jika berisi lebih dari satu lagu, antrean yang sama diputar ulang secara acak (mode acak
+  ikut menyala), dimulai dari lagu yang bukan lagu terakhir tadi. Tidak ada lagu dari playlist lain yang
+  masuk. Antrean satu lagu berhenti seperti biasa. Kode: `restartQueue` di `hooks/useAudioPlayerController.ts`,
+  `pickRestartIndex` di `utils/playerQueue.ts`.
 - Jika belum ada antrean, opsi antrean memutar lagu itu langsung dan antreannya dimulai dari situ
   (menu menampilkan catatan soal ini).
 - Lagu yang sama tidak digandakan di daftar "Berikutnya": "Putar berikutnya" memindahkannya ke depan.
 - Kode: `hooks/useLongPress.ts`, `context/TrackMenuContext.tsx`, `components/player/TrackMenuSheet.tsx`;
   aksi pemutar `addToQueue` / `playNextInQueue`; logika murni `insertUpcomingTrack` di `utils/playerQueue.ts`.
+
+## Sleep timer dan lirik (pemutar penuh)
+
+- **Sleep timer** (tombol bulan di pemutar penuh): jeda otomatis setelah 15/30/45/60 menit, atau berhenti
+  saat lagu yang sedang diputar selesai. Tetap jalan walau pemutar ditutup; sisa waktu tampil di tombolnya.
+  Saat waktunya habis musik **dijeda** (bisa dilanjutkan). Kode: `context/SleepTimerContext.tsx`,
+  `components/player/SleepTimerSheet.tsx`; aksi pemutar `pause` dan `setStopAfterTrack`.
+- **Lirik** (tombol Lirik): diambil dari [LRCLIB](https://lrclib.net) lewat `services/lyricsApi.ts`
+  (cocok persis dulu, lalu pencarian longgar; lagu dengan selisih durasi > 8 detik ditolak). Lirik
+  bertanda waktu disorot per baris dan bisa diketuk untuk loncat ke bagian itu (jika audio bisa di-seek);
+  lirik tanpa waktu tampil biasa. Jika tidak ada, jaringan gagal, atau browser memblokir (CORS), yang tampil
+  pesan yang jelas. Hasil disimpan sementara selama sesi. Parser: `utils/lrc.ts`.
 
 ## Ketuk baris lagu
 

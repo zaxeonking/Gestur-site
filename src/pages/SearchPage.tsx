@@ -98,6 +98,7 @@ export default function SearchPage() {
           onQueryChange={setQuery}
           includeAlbum={false}
           emptyState={emptyState}
+          searchable
           onPlay={player.selectTrack}
           playingTrackId={player.currentTrack?.id ?? null}
           playbackActivity={getRowActivity(player.status)}

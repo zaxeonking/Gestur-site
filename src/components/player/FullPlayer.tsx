@@ -1,14 +1,17 @@
-import { AlertCircle, ChevronDown } from 'lucide-react'
-import { useEffect, useRef, type KeyboardEvent } from 'react'
+import { AlertCircle, ChevronDown, Mic2 } from 'lucide-react'
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { useLibrary } from '../../context/LibraryContext'
 import { useAudioPlayer } from '../../hooks/useAudioPlayer'
+import { useLyrics } from '../../hooks/useLyrics'
 import { useNowPlaying } from '../../hooks/useNowPlaying'
 import { noticeMessage } from '../../utils/libraryNotice'
 import { looksLikeSameTrack, STATUS_TEXT } from '../../utils/playerStatus'
 import CoverArt from '../ui/CoverArt'
 import CollectionButton from './CollectionButton'
 import { PlayerError, QueueButton, SpotifyLink, TransportControls } from './PlayerControls'
+import LyricsPanel from './LyricsPanel'
 import SeekBar from './SeekBar'
+import SleepTimerSheet, { SleepTimerButton } from './SleepTimerSheet'
 
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
@@ -22,6 +25,10 @@ export default function FullPlayer({ onClose, onOpenQueue }: { onClose: () => vo
   const { notice, dismissNotice } = useLibrary()
   const dialogRef = useRef<HTMLDivElement>(null)
   const closeRef = useRef<HTMLButtonElement>(null)
+  // Tampilan tengah: sampul atau lirik. Lirik baru diminta ke server saat tampilannya dibuka.
+  const [showLyrics, setShowLyrics] = useState(false)
+  const [timerOpen, setTimerOpen] = useState(false)
+  const { state: lyrics, retry: retryLyrics } = useLyrics(currentTrack, showLyrics)
 
   // Fokus masuk ke dialog, scroll halaman dikunci, fokus dikembalikan saat ditutup.
   useEffect(() => {
@@ -84,11 +91,17 @@ export default function FullPlayer({ onClose, onOpenQueue }: { onClose: () => vo
           <QueueButton onClick={onOpenQueue} size="lg" className="-mr-2 flex" />
         </header>
 
-        <div className="flex flex-1 items-center justify-center py-4">
-          <div className="w-[min(100%,38dvh,26rem)] shadow-2xl shadow-black/50">
-            <CoverArt cover={now.cover} src={now.coverSrc} />
+        {showLyrics ? (
+          <div className="my-3 h-[38dvh] min-h-[14rem] flex-1">
+            <LyricsPanel state={lyrics} onRetry={retryLyrics} />
           </div>
-        </div>
+        ) : (
+          <div className="flex flex-1 items-center justify-center py-4">
+            <div className="w-[min(100%,38dvh,26rem)] shadow-2xl shadow-black/50">
+              <CoverArt cover={now.cover} src={now.coverSrc} />
+            </div>
+          </div>
+        )}
 
         <div className="space-y-4 sm:space-y-5">
           <div className="min-w-0">
@@ -116,6 +129,22 @@ export default function FullPlayer({ onClose, onOpenQueue }: { onClose: () => vo
             <CollectionButton size="lg" className="flex" />
             <SpotifyLink url={now.spotifyUrl} variant="button" />
           </div>
+
+          <div className="flex items-center justify-center gap-3">
+            <button
+              type="button"
+              onClick={() => setShowLyrics((value) => !value)}
+              aria-pressed={showLyrics}
+              className={`inline-flex h-11 items-center justify-center gap-2 rounded-full border px-5 text-sm font-semibold transition-colors active:bg-white/10 focus-ring ${
+                showLyrics ? 'border-accent text-accent' : 'border-white/20 text-ink hover:border-accent'
+              }`}
+            >
+              <Mic2 className="h-4 w-4" aria-hidden="true" />
+              Lirik
+            </button>
+            <SleepTimerButton onClick={() => setTimerOpen(true)} />
+          </div>
+          {timerOpen && <SleepTimerSheet onClose={() => setTimerOpen(false)} />}
 
           {notice && (
             <div role="alert" className="flex items-start gap-2 rounded-lg bg-card/80 px-3 py-2 text-xs text-ink">

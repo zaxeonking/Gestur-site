@@ -75,6 +75,8 @@ export interface PlayerQueueState {
   repeat: RepeatMode
   /** True saat lagu sedang dalam putaran ulang 1x (mode `once`). */
   repeatingOnce: boolean
+  /** Pemutaran berhenti saat lagu yang sedang berjalan selesai (sleep timer "akhir lagu"). */
+  stopAfterTrack: boolean
 }
 
 /** Dipisah dari state karena berubah ±4 kali per detik. */
@@ -93,8 +95,17 @@ export interface PlaybackTime {
  * moved     sudah ada di daftar "Berikutnya", dipindah ke depan
  * duplicate sudah ada di daftar "Berikutnya", tidak diubah
  * current   lagu ini sedang diputar
+ * blocked   lagu dari luar antrean ini, dan bukan dari hasil pencarian: tidak dicampur
  */
-export type QueueAddResult = 'started' | 'added' | 'moved' | 'duplicate' | 'current'
+export type QueueAddResult = 'started' | 'added' | 'moved' | 'duplicate' | 'current' | 'blocked'
+
+export interface QueueAddOptions {
+  /**
+   * True jika lagu dipilih dari hasil pencarian. Hanya itu yang boleh memasukkan lagu dari luar
+   * antrean yang sedang berjalan; selain itu antrean tetap berisi satu sumber saja.
+   */
+  fromSearch?: boolean
+}
 
 export interface AudioPlayerActions {
   /**
@@ -109,7 +120,8 @@ export interface AudioPlayerActions {
   selectTrack: PlayTrackHandler
   /**
    * Memutar semua lagu yang diberikan berurutan, mulai dari lagu pertama. Queue diganti dengan
-   * `tracks`; setiap lagu selesai, lagu berikutnya otomatis diputar sampai akhir queue.
+   * `tracks`; setiap lagu selesai, lagu berikutnya otomatis diputar. Saat queue habis (dan berisi
+   * lebih dari satu lagu), queue yang sama diputar ulang secara acak.
    */
   playAll: PlayAllHandler
   /**
@@ -124,11 +136,21 @@ export interface AudioPlayerActions {
   moveUpcoming: (from: number, to: number) => void
   /** Menghapus lagu di posisi `position` pada daftar "Berikutnya" dari antrean. */
   removeUpcoming: (position: number) => void
-  /** Menambahkan lagu (dari mana pun, termasuk di luar playlist) ke akhir daftar "Berikutnya". */
-  addToQueue: (track: PlaylistTrack) => QueueAddResult
-  /** Menaruh lagu tepat setelah lagu yang sedang diputar. */
-  playNextInQueue: (track: PlaylistTrack) => QueueAddResult
+  /**
+   * Menambahkan lagu ke akhir daftar "Berikutnya". Lagu di luar antrean aktif hanya diterima jika
+   * `fromSearch` (hasil pencarian); selain itu hasilnya 'blocked'.
+   */
+  addToQueue: (track: PlaylistTrack, options?: QueueAddOptions) => QueueAddResult
+  /** Menaruh lagu tepat setelah lagu yang sedang diputar. Aturan sumbernya sama dengan `addToQueue`. */
+  playNextInQueue: (track: PlaylistTrack, options?: QueueAddOptions) => QueueAddResult
   togglePlayPause: () => void
+  /** Menjeda jika sedang berjalan/memuat; tidak melakukan apa pun pada status lain (aman dipanggil timer). */
+  pause: () => void
+  /**
+   * Berhenti (status `ended`) saat lagu yang sedang berjalan selesai, tanpa lanjut ke lagu berikutnya,
+   * mengulang, atau memutar ulang antrean. Padam sendiri setelah terpakai.
+   */
+  setStopAfterTrack: (enabled: boolean) => void
   /** Memutar lagu berikutnya di queue. Tidak melakukan apa pun jika sudah di akhir. */
   playNext: () => void
   /**

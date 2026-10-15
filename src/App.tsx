@@ -4,6 +4,7 @@ import { AudioPlayerProvider } from './context/AudioPlayerContext'
 import { LibraryProvider } from './context/LibraryContext'
 import { PlayerUiProvider } from './context/PlayerUiContext'
 import { PlaylistProvider } from './context/PlaylistContext'
+import { SleepTimerProvider } from './context/SleepTimerContext'
 import { TrackMenuProvider } from './context/TrackMenuContext'
 import HomePage from './pages/HomePage'
 import LibraryPage from './pages/LibraryPage'
@@ -31,7 +32,9 @@ export default function App() {
       <AudioPlayerProvider>
         <LibraryProvider>
           <TrackMenuProvider>
-            <RouterProvider router={router} />
+            <SleepTimerProvider>
+              <RouterProvider router={router} />
+            </SleepTimerProvider>
           </TrackMenuProvider>
         </LibraryProvider>
       </AudioPlayerProvider>

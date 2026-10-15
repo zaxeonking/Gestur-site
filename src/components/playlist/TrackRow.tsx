@@ -28,13 +28,15 @@ interface TrackRowProps {
   activity?: RowActivity
   onSelect: (id: string) => void
   onPlay: PlayTrackHandler
+  /** Baris ini hasil pencarian (kata kunci terisi di halaman Cari): menu lagunya boleh memasukkan lagu ke antrean mana pun. */
+  fromSearch?: boolean
 }
 
-function TrackRow({ track, index, selected, activity = 'none', onSelect, onPlay }: TrackRowProps) {
+function TrackRow({ track, index, selected, activity = 'none', onSelect, onPlay, fromSearch = false }: TrackRowProps) {
   const fallback = useMemo(() => fallbackCover(`${track.title}${track.album}`), [track.title, track.album])
   const { openTrackMenu } = useTrackMenu()
   const { openFullPlayer } = usePlayerUiActions()
-  const longPress = useLongPress(() => openTrackMenu(track))
+  const longPress = useLongPress(() => openTrackMenu(track, { fromSearch }))
   const number = index + 1
   const isCurrent = activity !== 'none'
   const highlighted = selected || isCurrent
