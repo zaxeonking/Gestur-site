@@ -1,5 +1,5 @@
 import { AlertCircle, ChevronDown, Mic2 } from 'lucide-react'
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { useLibrary } from '../../context/LibraryContext'
 import { useAudioPlayer } from '../../hooks/useAudioPlayer'
 import { useLyrics } from '../../hooks/useLyrics'
@@ -28,7 +28,15 @@ export default function FullPlayer({ onClose, onOpenQueue }: { onClose: () => vo
   // Tampilan tengah: sampul atau lirik. Lirik baru diminta ke server saat tampilannya dibuka.
   const [showLyrics, setShowLyrics] = useState(false)
   const [timerOpen, setTimerOpen] = useState(false)
-  const { state: lyrics, retry: retryLyrics } = useLyrics(currentTrack, showLyrics)
+  // Lirik dicari untuk lagu yang BENAR-BENAR terdengar: jika server memberi audio lagu lain, pakai datanya.
+  const lyricsTrack = useMemo(() => {
+    if (!currentTrack) return null
+    if (playbackInfo && !looksLikeSameTrack(currentTrack, playbackInfo)) {
+      return { ...currentTrack, title: playbackInfo.title, artists: playbackInfo.artist, album: playbackInfo.album, duration: playbackInfo.duration }
+    }
+    return currentTrack
+  }, [currentTrack, playbackInfo])
+  const { state: lyrics, retry: retryLyrics } = useLyrics(lyricsTrack, showLyrics)
 
   // Fokus masuk ke dialog, scroll halaman dikunci, fokus dikembalikan saat ditutup.
   useEffect(() => {

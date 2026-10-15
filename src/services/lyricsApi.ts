@@ -12,8 +12,9 @@ const TIMEOUT_MS = 12_000
 const MAX_DURATION_DIFF_S = 8
 
 export type LyricsResult =
-  | { kind: 'synced'; lines: LyricLine[] }
-  | { kind: 'plain'; lines: string[] }
+  /** `duration`: durasi lagu pada data lirik (detik), untuk mendeteksi versi audio yang berbeda. */
+  | { kind: 'synced'; lines: LyricLine[]; duration: number | null }
+  | { kind: 'plain'; lines: string[]; duration: number | null }
   | { kind: 'instrumental' }
   | { kind: 'none' }
 
@@ -29,6 +30,8 @@ export class LyricsError extends Error {
 }
 
 interface LrclibRecord {
+  trackName: string
+  artistName: string
   duration: number | null
   instrumental: boolean
   plainLyrics: string | null
@@ -53,6 +56,8 @@ function asRecord(value: unknown): LrclibRecord | null {
   const item = value as Record<string, unknown>
   const text = (field: unknown) => (typeof field === 'string' && field.trim() !== '' ? field : null)
   return {
+    trackName: typeof item.trackName === 'string' ? item.trackName : '',
+    artistName: typeof item.artistName === 'string' ? item.artistName : '',
     duration: typeof item.duration === 'number' && Number.isFinite(item.duration) ? item.duration : null,
     instrumental: item.instrumental === true,
     plainLyrics: text(item.plainLyrics),
@@ -95,22 +100,56 @@ async function getJson(path: string, params: Record<string, string>, signal: Abo
 function toResult(record: LrclibRecord): LyricsResult {
   if (record.syncedLyrics) {
     const lines = parseLrc(record.syncedLyrics)
-    if (lines.length > 0) return { kind: 'synced', lines }
+    if (lines.length > 0) return { kind: 'synced', lines, duration: record.duration }
   }
   if (record.plainLyrics) {
-    return { kind: 'plain', lines: record.plainLyrics.split(/\r?\n/).map((line) => line.trimEnd()) }
+    return {
+      kind: 'plain',
+      lines: record.plainLyrics.split(/\r?\n/).map((line) => line.trimEnd()),
+      duration: record.duration,
+    }
   }
   return record.instrumental ? { kind: 'instrumental' } : { kind: 'none' }
 }
 
-function pickBest(records: LrclibRecord[], durationS: number | null): LrclibRecord | null {
-  const usable = records.filter((r) => r.instrumental || r.syncedLyrics || r.plainLyrics)
-  const close =
-    durationS === null
-      ? usable
-      : usable.filter((r) => r.duration === null || Math.abs(r.duration - durationS) <= MAX_DURATION_DIFF_S)
-  // Yang bertanda waktu lebih berguna daripada teks biasa.
-  return close.find((r) => r.syncedLyrics) ?? close[0] ?? null
+function normalizeName(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim()
+}
+
+/** Dua nama dianggap sama jika identik, atau yang satu memuat yang lain dan panjangnya tidak terlalu beda. */
+function similarName(a: string, b: string): boolean {
+  if (!a || !b) return false
+  if (a === b) return true
+  const [short, long] = a.length <= b.length ? [a, b] : [b, a]
+  return long.includes(short) && short.length / long.length >= 0.6
+}
+
+/**
+ * Data lirik harus benar-benar lagu yang diminta: judul DAN artis cocok. Pencarian LRCLIB bisa mengembalikan
+ * lagu lain yang mirip; tanpa pemeriksaan ini lirik yang tampil bisa milik lagu berbeda.
+ */
+export function matchesTrack(record: { trackName: string; artistName: string }, title: string, artist: string): boolean {
+  if (!similarName(normalizeName(cleanTitle(record.trackName) || record.trackName), normalizeName(title))) return false
+  const wanted = normalizeName(artist)
+  const got = normalizeName(record.artistName)
+  if (!wanted || !got) return true
+  return got.includes(wanted) || wanted.includes(got)
+}
+
+function pickBest(records: LrclibRecord[], durationS: number | null, title: string, artist: string): LrclibRecord | null {
+  const candidates = records
+    .filter((r) => r.instrumental || r.syncedLyrics || r.plainLyrics)
+    .filter((r) => matchesTrack(r, title, artist))
+    .filter((r) => durationS === null || r.duration === null || Math.abs(r.duration - durationS) <= MAX_DURATION_DIFF_S)
+  // Paling dekat durasinya dulu; yang bertanda waktu sedikit diutamakan.
+  const score = (r: LrclibRecord) =>
+    (durationS !== null && r.duration !== null ? Math.abs(r.duration - durationS) : 5) + (r.syncedLyrics ? 0 : 2)
+  return [...candidates].sort((a, b) => score(a) - score(b))[0] ?? null
 }
 
 /** Mencari lirik lagu: cocok persis dulu (`/get`), lalu pencarian longgar (`/search`). */
@@ -124,7 +163,9 @@ export async function fetchLyrics(track: PlaylistTrack, options: { signal: Abort
   if (track.album) exactParams.album_name = track.album
   if (durationS) exactParams.duration = String(Math.round(durationS))
   const exact = asRecord(await getJson('/get', exactParams, signal))
-  if (exact && (exact.instrumental || exact.syncedLyrics || exact.plainLyrics)) return toResult(exact)
+  if (exact && (exact.instrumental || exact.syncedLyrics || exact.plainLyrics) && matchesTrack(exact, title, artist)) {
+    return toResult(exact)
+  }
 
   const searches: Record<string, string>[] = [
     artist ? { track_name: title, artist_name: artist } : { track_name: title },
@@ -134,7 +175,7 @@ export async function fetchLyrics(track: PlaylistTrack, options: { signal: Abort
     const raw = await getJson('/search', params, signal)
     if (!Array.isArray(raw)) continue
     const records = raw.map(asRecord).filter((r): r is LrclibRecord => r !== null)
-    const best = pickBest(records, durationS)
+    const best = pickBest(records, durationS, title, artist)
     if (best) return toResult(best)
   }
   return { kind: 'none' }
