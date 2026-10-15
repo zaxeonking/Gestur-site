@@ -6,7 +6,7 @@ import type {
   SpotifyApiPlaylistResponse,
   SpotifyApiTrack,
 } from '../types/spotify'
-import { extractTrackId, isSafeHttpUrl, validateSpotifyPlaylistUrl } from '../utils/spotifyUrl'
+import { extractSpotifyTrackLink, extractTrackId, isSafeHttpUrl, validateSpotifyPlaylistUrl } from '../utils/spotifyUrl'
 
 const DEFAULT_BASE_URL = 'https://api.nexadev.my.id'
 const PLAYLIST_PATH = '/api/spotifypl'
@@ -19,6 +19,19 @@ export const PLAYBACK_TIMEOUT_MS = 30_000
 function getBaseUrl(): string {
   const configured = import.meta.env?.VITE_API_BASE_URL?.trim()
   return (configured || DEFAULT_BASE_URL).replace(/\/+$/, '')
+}
+
+/* API download berbasis URL lagu (akurat 100%: memutar persis lagu yang ditautkan). */
+const DEFAULT_DOWNLOAD_BASE_URL = 'https://app.kyzznekoo.my.id'
+const DOWNLOAD_PATH = '/api/download/spotify'
+/** Nama parameter query untuk tautan lagu. ASUMSI: `url`. Ubah di sini jika API memakai nama lain. */
+const DOWNLOAD_URL_PARAM = 'url'
+
+function getDownloadBaseUrl(): string {
+  const configured = import.meta.env?.VITE_DOWNLOAD_API_BASE_URL?.trim()
+  if (configured) return configured.replace(/\/+$/, '')
+  // Jika API utama dipasang lewat proxy (/nexa), API download otomatis ikut lewat proxy (/kyzz).
+  return getBaseUrl() === '/nexa' ? '/kyzz' : DEFAULT_DOWNLOAD_BASE_URL
 }
 
 /* ------------------------------------------------------------------ */
@@ -406,46 +419,135 @@ export function describeApiError(error: unknown): string {
 }
 
 /* ------------------------------------------------------------------ */
+/* API download berbasis URL lagu                                      */
+/* ------------------------------------------------------------------ */
+
+export function buildDownloadEndpoint(trackUrl: string): string {
+  return `${getDownloadBaseUrl()}${DOWNLOAD_PATH}?${DOWNLOAD_URL_PARAM}=${encodeURIComponent(trackUrl)}`
+}
+
+/**
+ * Memeriksa respons API download. `status: true` saja tidak cukup: `data.url` (audio) harus ada dan
+ * berupa URL http(s). Metadata (`data.metadata`) opsional; field yang null dibaca sebagai teks kosong.
+ */
+export function parseDownloadResponse(body: unknown, trackUrl: string): PlaybackInfo {
+  if (!isRecord(body)) {
+    throw new SpotifyApiError('invalid_response', 'Respons server bukan objek JSON yang valid.')
+  }
+  if (typeof body.status !== 'boolean') {
+    throw new SpotifyApiError('invalid_response', 'Respons server tidak memiliki field "status".')
+  }
+  if (!body.status) {
+    throw new SpotifyApiError('api', readMessage(body) ?? 'API download melaporkan permintaan gagal.')
+  }
+  const { data } = body
+  if (!isRecord(data)) {
+    throw new SpotifyApiError('invalid_response', 'Data lagu pada respons tidak lengkap.')
+  }
+  const audioUrl = readString(data.url).trim()
+  if (!audioUrl) {
+    throw new SpotifyApiError('no_audio', 'Server tidak menyediakan audio untuk lagu ini.')
+  }
+  if (!isSafeHttpUrl(audioUrl)) {
+    throw new SpotifyApiError('invalid_response', 'URL audio dari server tidak valid.')
+  }
+  const meta = isRecord(data.metadata) ? data.metadata : {}
+  return {
+    title: readString(meta.name),
+    artist: readString(meta.artist),
+    album: readString(meta.album),
+    duration: readString(meta.duration),
+    cover: readString(meta.image),
+    spotifyUrl: trackUrl,
+    audioUrl,
+  }
+}
+
+/** Meminta audio + metadata untuk satu lagu lewat tautan Spotify-nya (selalu permintaan baru). */
+async function requestDownload(trackUrl: string, options: FetchPlaylistOptions = {}): Promise<PlaybackInfo> {
+  const { signal, timeoutMs = PLAYBACK_TIMEOUT_MS } = options
+  const body = await requestJson(buildDownloadEndpoint(trackUrl), {
+    signal,
+    timeoutMs,
+    httpMessage: playbackHttpMessage,
+  })
+  return parseDownloadResponse(body, trackUrl)
+}
+
+/* ------------------------------------------------------------------ */
 /* Hand-off pencarian → pemutaran                                      */
 /* ------------------------------------------------------------------ */
 
 /**
- * Hasil pencarian judul sudah memuat `mp3_url`. Agar menekan Play tidak memanggil endpoint yang
- * lambat itu untuk kedua kalinya, hasilnya disimpan sebentar dan dipakai SEKALI oleh pemutaran
- * berikutnya untuk judul yang sama. Setelah itu (atau lewat 2 menit) selalu ambil `mp3_url` baru,
- * karena URL bisa bersifat sementara.
+ * Hasil pencarian sudah memuat URL audio. Agar menekan Play tidak memanggil API untuk kedua kalinya,
+ * hasilnya disimpan sebentar dan dipakai SEKALI oleh pemutaran berikutnya untuk lagu yang sama.
+ * Setelah itu (atau lewat 2 menit) selalu ambil URL audio baru, karena URL bisa bersifat sementara
+ * (API download memakai token yang kedaluwarsa).
+ * Kunci: tautan lagu Spotify jika ada, jika tidak judul (huruf kecil).
  */
 const HANDOFF_TTL_MS = 2 * 60_000
 const handoff = new Map<string, { info: PlaybackInfo; at: number }>()
 
-function handoffKey(title: string): string {
-  return title.trim().toLowerCase()
+function handoffKey(title: string, url: string | undefined): string {
+  return extractSpotifyTrackLink(url ?? '') ?? `judul:${title.trim().toLowerCase()}`
 }
 
-function takeHandoff(title: string): PlaybackInfo | null {
-  const key = handoffKey(title)
+function putHandoff(key: string, info: PlaybackInfo): void {
+  const now = Date.now()
+  for (const [k, entry] of handoff) if (now - entry.at > HANDOFF_TTL_MS) handoff.delete(k)
+  handoff.set(key, { info, at: now })
+}
+
+function takeHandoff(key: string): PlaybackInfo | null {
   const entry = handoff.get(key)
   if (!entry) return null
   handoff.delete(key)
   return Date.now() - entry.at <= HANDOFF_TTL_MS ? entry.info : null
 }
 
-/** Mencari lagu lewat judul (endpoint play) dan menyiapkan hand-off untuk pemutaran. */
+/** Mencari lagu lewat judul (endpoint play lama; server memilih lagu terdekat, TIDAK selalu akurat). */
 export async function searchTrackByTitle(
   query: string,
   options: FetchPlaylistOptions = {},
 ): Promise<PlaybackInfo> {
   const info = await requestPlayback(query, options)
-  const now = Date.now()
-  for (const [key, entry] of handoff) if (now - entry.at > HANDOFF_TTL_MS) handoff.delete(key)
-  handoff.set(handoffKey(info.title || query), { info, at: Date.now() })
+  putHandoff(handoffKey(info.title || query, info.spotifyUrl), info)
   return info
 }
 
-/** Info playback untuk pemutaran: memakai hasil pencarian yang baru saja dibuat, jika ada. */
-export async function fetchPlaybackInfo(
-  songTitle: string,
+/** Memuat satu lagu lewat tautan Spotify-nya (akurat: lagu persis yang ditautkan). */
+export async function searchTrackByLink(
+  trackUrl: string,
   options: FetchPlaylistOptions = {},
 ): Promise<PlaybackInfo> {
-  return takeHandoff(songTitle) ?? requestPlayback(songTitle, options)
+  const link = extractSpotifyTrackLink(trackUrl)
+  if (!link) throw new SpotifyApiError('invalid_url', 'Tautan lagu Spotify tidak valid.')
+  const info = await requestDownload(link, options)
+  putHandoff(handoffKey(info.title, link), info)
+  return info
+}
+
+/**
+ * Info playback untuk pemutaran. Urutan:
+ * 1. hasil pencarian yang baru saja dibuat (sekali pakai),
+ * 2. API download memakai tautan lagu (akurat),
+ * 3. cadangan: cari lewat judul (kurang akurat) jika lagu tidak punya tautan atau API download gagal.
+ */
+export async function fetchPlaybackInfo(
+  track: { title: string; url?: string },
+  options: FetchPlaylistOptions = {},
+): Promise<PlaybackInfo> {
+  const handed = takeHandoff(handoffKey(track.title, track.url))
+  if (handed) return handed
+
+  const link = extractSpotifyTrackLink(track.url ?? '')
+  if (link) {
+    try {
+      return await requestDownload(link, options)
+    } catch (error) {
+      if (error instanceof SpotifyApiError && error.code === 'aborted') throw error
+      console.warn('[MusicVerse] API download gagal, memakai pencarian judul (kurang akurat):', error)
+    }
+  }
+  return requestPlayback(track.title, options)
 }

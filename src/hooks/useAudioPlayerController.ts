@@ -223,7 +223,7 @@ export function useAudioPlayerController(playlistTracks: PlaylistTrack[]) {
         // Setiap permintaan play selalu mengambil mp3_url terbaru (tanpa cache).
         let info: PlaybackInfo
         try {
-          info = await fetchPlaybackInfo(track.title, { signal: controller.signal })
+          info = await fetchPlaybackInfo(track, { signal: controller.signal })
         } catch (error) {
           if (isStale()) return
           if (error instanceof SpotifyApiError) {

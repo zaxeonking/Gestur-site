@@ -64,7 +64,7 @@ export function validateSpotifyPlaylistUrl(input: string): PlaylistUrlValidation
   if (segments[0] === 'user' && segments.length >= 4) segments.splice(0, 2)
 
   if (segments[0] !== 'playlist') {
-    return invalid('not_playlist', 'Tautan ini bukan playlist Spotify. Salin tautan playlist, bukan lagu atau album.')
+    return invalid('not_playlist', 'Tautan ini bukan playlist atau lagu Spotify. Album dan artis belum didukung.')
   }
   if (!segments[1]) {
     return invalid('id', 'Tautan playlist tidak memiliki ID. Salin ulang dari Spotify.')
@@ -112,7 +112,9 @@ export function resolveSpotifyTrackUrl(...candidates: Array<string | undefined |
 
 export type ImportInput =
   | { kind: 'empty' }
-  /** Terlihat seperti tautan: divalidasi sebagai tautan playlist Spotify. */
+  /** Tautan lagu Spotify (`url` sudah dinormalkan ke https://open.spotify.com/track/{id}). */
+  | { kind: 'track'; url: string }
+  /** Tautan lain: divalidasi sebagai tautan playlist Spotify. */
   | { kind: 'playlist' }
   /** Bukan tautan: diperlakukan sebagai judul lagu. */
   | { kind: 'search'; query: string }
@@ -127,7 +129,8 @@ export function classifyImportInput(input: string): ImportInput {
   const value = input.trim()
   if (!value) return { kind: 'empty' }
   if (/^[a-z][a-z0-9+.-]*:\/\//i.test(value) || /^spotify:/i.test(value) || /^(www\.)?open\.spotify\.com\//i.test(value)) {
-    return { kind: 'playlist' }
+    const trackUrl = extractSpotifyTrackLink(value)
+    return trackUrl ? { kind: 'track', url: trackUrl } : { kind: 'playlist' }
   }
   return { kind: 'search', query: value.slice(0, MAX_QUERY_LENGTH) }
 }
@@ -144,6 +147,30 @@ export const LIVE_SEARCH_MIN_LENGTH = 3
 export function getLiveLoadTarget(input: string): string | null {
   const parsed = classifyImportInput(input)
   if (parsed.kind === 'search') return parsed.query.length >= LIVE_SEARCH_MIN_LENGTH ? parsed.query : null
+  if (parsed.kind === 'track') return parsed.url
   if (parsed.kind === 'playlist') return validateSpotifyPlaylistUrl(input).valid ? input.trim() : null
   return null
+}
+
+/**
+ * Mengubah tautan/URI lagu Spotify (open.spotify.com/track/{id}, intl-xx, embed, atau spotify:track:{id})
+ * menjadi https://open.spotify.com/track/{id} tanpa query. Selain itu null.
+ */
+export function extractSpotifyTrackLink(input: string): string | null {
+  const value = input.trim()
+  const uri = /^spotify:track:([A-Za-z0-9]+)$/i.exec(value)
+  if (uri) return `https://open.spotify.com/track/${uri[1]}`
+
+  const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(value) ? value : `https://${value}`
+  try {
+    const url = new URL(withScheme)
+    if (url.hostname.toLowerCase() !== SPOTIFY_HOST) return null
+    const segments = url.pathname.split('/').filter(Boolean)
+    if (/^intl-[a-z]{2,}(-[a-z]{2,})?$/i.test(segments[0] ?? '')) segments.shift()
+    if (segments[0] === 'embed') segments.shift()
+    const id = segments[0] === 'track' ? segments[1] : undefined
+    return id && /^[A-Za-z0-9]+$/.test(id) ? `https://open.spotify.com/track/${id}` : null
+  } catch {
+    return null
+  }
 }

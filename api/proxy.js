@@ -1,24 +1,29 @@
 // Proxy server-side ke API pihak ketiga (menghindari CORS di browser).
-// Dipanggil lewat rewrite di vercel.json: /nexa/<path>?<query>  ->  /api/proxy?path=<path>&<query>
-const UPSTREAM = 'https://api.nexadev.my.id'
-const ALLOWED = ['api/spotifypl', 'api/spotifyplay']
+// vercel.json: /nexa/<path>  -> /api/proxy?upstream=nexa&path=<path>
+//              /kyzz/<path>  -> /api/proxy?upstream=kyzz&path=<path>
+const UPSTREAMS = {
+  nexa: { base: 'https://api.nexadev.my.id', allowed: ['api/spotifypl', 'api/spotifyplay'] },
+  kyzz: { base: 'https://app.kyzznekoo.my.id', allowed: ['api/download/spotify'] },
+}
 const TIMEOUT_MS = 25000
 
 export default async function handler(req, res) {
   const incoming = new URL(req.url, 'http://localhost')
+  const upstream = UPSTREAMS[incoming.searchParams.get('upstream') || 'nexa']
   const path = (incoming.searchParams.get('path') || '').replace(/^\/+/, '')
+  incoming.searchParams.delete('upstream')
   incoming.searchParams.delete('path')
 
-  if (!ALLOWED.includes(path)) {
+  if (!upstream || !upstream.allowed.includes(path)) {
     return res.status(404).json({ status: false, message: `Proxy: path tidak diizinkan (${path || 'kosong'}).` })
   }
 
-  const target = `${UPSTREAM}/${path}${incoming.search}`
+  const target = `${upstream.base}/${path}${incoming.search}`
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
 
   try {
-    const upstream = await fetch(target, {
+    const response = await fetch(target, {
       method: 'GET',
       headers: {
         Accept: 'application/json',
@@ -26,9 +31,9 @@ export default async function handler(req, res) {
       },
       signal: controller.signal,
     })
-    const body = await upstream.text()
-    res.status(upstream.status)
-    res.setHeader('Content-Type', upstream.headers.get('content-type') || 'application/json')
+    const body = await response.text()
+    res.status(response.status)
+    res.setHeader('Content-Type', response.headers.get('content-type') || 'application/json')
     res.setHeader('Cache-Control', 'no-store')
     return res.send(body)
   } catch (error) {

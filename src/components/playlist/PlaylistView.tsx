@@ -37,7 +37,7 @@ function ErrorDetail({ detail }: { detail?: string | null }) {
 /** Menampilkan playlist dari API: kosong, memuat, gagal, atau daftar lagu. */
 export default function PlaylistView() {
   const { status, playlist, error, errorDetail, fromCache, canRetry, loadPlaylist, requestedUrl } = usePlaylist()
-  const wasSearch = requestedUrl !== null && classifyImportInput(requestedUrl).kind === 'search'
+  const wasSearch = requestedUrl !== null && ['search', 'track'].includes(classifyImportInput(requestedUrl).kind)
   const player = useAudioPlayer()
 
   if (status === 'loading') return <PlaylistSkeleton />
@@ -63,7 +63,7 @@ export default function PlaylistView() {
       <EmptyState
         icon={ListMusic}
         title="Belum ada lagu atau playlist"
-        description="Ketik judul lagu di kolom atas, atau tempel tautan playlist Spotify (playlist harus bersifat publik)."
+        description="Ketik judul lagu, tempel tautan lagu, atau tempel tautan playlist Spotify (playlist harus publik)."
       />
     )
   }

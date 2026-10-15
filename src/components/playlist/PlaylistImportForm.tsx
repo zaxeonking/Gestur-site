@@ -15,7 +15,7 @@ export default function PlaylistImportForm() {
   const inputId = useId()
   const errorId = `${inputId}-error`
   const loading = status === 'loading'
-  const isSearch = classifyImportInput(value).kind === 'search'
+  const inputKind = classifyImportInput(value).kind
   /** Teks terakhir yang sudah dimuat (otomatis atau lewat tombol), agar tidak diulang. */
   const lastLoadedRef = useRef<string | null>(null)
 
@@ -38,7 +38,7 @@ export default function PlaylistImportForm() {
 
     const input = classifyImportInput(value)
     if (input.kind === 'empty') {
-      setValidationError('Ketik judul lagu atau tempel tautan playlist Spotify.')
+      setValidationError('Ketik judul lagu, atau tempel tautan lagu/playlist Spotify.')
       return
     }
     if (input.kind === 'playlist') {
@@ -63,7 +63,7 @@ export default function PlaylistImportForm() {
   return (
     <form onSubmit={handleSubmit} noValidate aria-busy={loading} className="space-y-2" aria-label="Impor playlist Spotify">
       <label htmlFor={inputId} className="sr-only">
-        Judul lagu atau tautan playlist Spotify
+        Judul lagu, tautan lagu, atau tautan playlist Spotify
       </label>
       <div className="flex flex-col gap-2 sm:flex-row">
         <div className="relative flex-1">
@@ -81,7 +81,7 @@ export default function PlaylistImportForm() {
               setValue(e.target.value)
               if (validationError) setValidationError(null)
             }}
-            placeholder="Judul lagu atau tautan playlist Spotify"
+            placeholder="Judul lagu, tautan lagu, atau tautan playlist"
             autoComplete="off"
             spellCheck={false}
             aria-invalid={validationError ? true : undefined}
@@ -100,7 +100,7 @@ export default function PlaylistImportForm() {
             {loading && (
               <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
             )}
-            {loading ? 'Memuat…' : isSearch ? 'Cari lagu' : 'Muat playlist'}
+            {loading ? 'Memuat…' : inputKind === 'playlist' ? 'Muat playlist' : inputKind === 'track' ? 'Muat lagu' : 'Cari lagu'}
           </button>
           {isLive && (
             <button

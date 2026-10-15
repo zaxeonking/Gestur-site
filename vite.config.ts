@@ -14,6 +14,12 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/nexa/, ''),
       },
+      // API download berbasis tautan lagu (ikut dipakai otomatis saat VITE_API_BASE_URL=/nexa).
+      '/kyzz': {
+        target: 'https://app.kyzznekoo.my.id',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/kyzz/, ''),
+      },
     },
   },
 })

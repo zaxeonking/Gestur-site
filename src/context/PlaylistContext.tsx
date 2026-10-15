@@ -8,7 +8,7 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import { describeApiError, fetchPlaylist, searchTrackByTitle, SpotifyApiError } from '../services/spotifyApi'
+import { describeApiError, fetchPlaylist, searchTrackByLink, searchTrackByTitle, SpotifyApiError } from '../services/spotifyApi'
 import type { PlaylistDetail } from '../types/spotify'
 import { clearLastPlaylist, loadLastPlaylist, saveLastPlaylist } from '../utils/playlistStorage'
 import { buildSearchPlaylist } from '../utils/searchPlaylist'
@@ -81,12 +81,16 @@ export function PlaylistProvider({ children }: { children: ReactNode }) {
     setState((prev) => ({ ...prev, status: 'loading', error: null, errorDetail: null, requestedUrl: playlistUrl }))
 
     try {
-      // Bukan tautan = judul lagu: cari lewat endpoint play. Hasilnya tidak disimpan sebagai playlist.
+      // Judul lagu / tautan lagu: hasil satu lagu (tidak disimpan sebagai playlist).
       const input = classifyImportInput(playlistUrl)
-      const playlist =
-        input.kind === 'search'
-          ? buildSearchPlaylist(input.query, await searchTrackByTitle(input.query, { signal: controller.signal }))
-          : await fetchPlaylist(playlistUrl, { signal: controller.signal })
+      let playlist: PlaylistDetail
+      if (input.kind === 'search') {
+        playlist = buildSearchPlaylist(input.query, await searchTrackByTitle(input.query, { signal: controller.signal }))
+      } else if (input.kind === 'track') {
+        playlist = buildSearchPlaylist(input.url, await searchTrackByLink(input.url, { signal: controller.signal }))
+      } else {
+        playlist = await fetchPlaylist(playlistUrl, { signal: controller.signal })
+      }
       if (controller.signal.aborted) return false
       if (playlist.source !== 'search') saveLastPlaylist(playlist)
       setState({
