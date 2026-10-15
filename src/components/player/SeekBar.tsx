@@ -1,6 +1,6 @@
 import { useEffect, useId, useState, type KeyboardEvent } from 'react'
 import { useAudioPlayer, usePlaybackTime } from '../../hooks/useAudioPlayer'
-import { formatTime } from '../../utils/formatTime'
+import { formatTime, parseDuration } from '../../utils/formatTime'
 
 interface SeekBarProps {
   /** Ukuran jejak progres: mini lebih tipis. */
@@ -17,8 +17,11 @@ interface SeekBarProps {
  * Selain itu yang tampil hanya bar progres biasa (role=progressbar), tanpa kontrol.
  */
 export default function SeekBar({ size = 'md', className = '' }: SeekBarProps) {
-  const { currentTime, duration, seekable } = usePlaybackTime()
-  const { status, currentTrack, seekTo } = useAudioPlayer()
+  const { currentTime, duration: engineDuration, seekable } = usePlaybackTime()
+  const { status, currentTrack, playbackInfo, seekTo } = useAudioPlayer()
+  // Stream tanpa Content-Length membuat elemen audio melaporkan durasi tak terhingga (null di sini).
+  // Cadangan: durasi dari metadata lagu, hanya untuk tampilan progres. Seek tetap butuh `seekable`.
+  const duration = engineDuration ?? parseDuration(playbackInfo?.duration) ?? parseDuration(currentTrack?.duration)
   const labelId = useId()
   const [dragValue, setDragValue] = useState<number | null>(null)
 
@@ -49,7 +52,7 @@ export default function SeekBar({ size = 'md', className = '' }: SeekBarProps) {
   return (
     <div className={`flex items-center gap-2 text-xs tabular-nums text-ink-muted ${className}`}>
       <span className="w-10 shrink-0 text-right" aria-hidden="true">
-        {formatTime(shown)}
+        {formatTime(duration ? Math.min(shown, duration) : shown)}
       </span>
 
       <div className={`group relative flex flex-1 items-center ${size === 'sm' ? 'h-5' : 'h-7'}`}>

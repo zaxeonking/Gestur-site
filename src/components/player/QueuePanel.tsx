@@ -61,7 +61,8 @@ const UpcomingRow = memo(function UpcomingRow({ track, index, onPlay }: Upcoming
  * selalu sinkron. Mobile: bottom sheet. Desktop (lg): panel di sisi kanan.
  */
 export default function QueuePanel({ onClose }: { onClose: () => void }) {
-  const { queue, currentIndex, currentTrack, status, error, togglePlayPause, playQueueItem } = useAudioPlayer()
+  const { queue, currentIndex, currentTrack, status, error, shuffle, shuffleOrder, togglePlayPause, playQueueItem } =
+    useAudioPlayer()
   const dialogRef = useRef<HTMLDivElement>(null)
   const closeRef = useRef<HTMLButtonElement>(null)
 
@@ -76,7 +77,10 @@ export default function QueuePanel({ onClose }: { onClose: () => void }) {
     }
   }, [])
 
-  const upcoming = useMemo(() => getUpcomingTracks(queue, currentIndex), [queue, currentIndex])
+  const upcoming = useMemo(
+    () => getUpcomingTracks(queue, currentIndex, shuffleOrder),
+    [queue, currentIndex, shuffleOrder],
+  )
 
   // Baris yang diklik pindah ke "Sedang diputar" (ter-unmount), sehingga fokus jatuh ke <body> dan
   // Esc/Tab tidak lagi sampai ke dialog. Fokus dikembalikan ke dialog agar keyboard tetap berfungsi.
@@ -190,7 +194,7 @@ export default function QueuePanel({ onClose }: { onClose: () => void }) {
 
           <section aria-label="Berikutnya">
             <h3 className="px-2 pb-1 pt-4 text-sm font-semibold text-ink-muted">
-              Berikutnya{upcoming.length > 0 ? ` · ${upcoming.length}` : ''}
+              Berikutnya{upcoming.length > 0 ? ` · ${upcoming.length}` : ''}{shuffle ? ' · acak' : ''}
             </h3>
             {upcoming.length === 0 ? (
               <p className="px-2 py-4 text-sm text-ink-muted">

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import { useAudioPlayer } from '../../hooks/useAudioPlayer'
 import FullPlayer from './FullPlayer'
 import MiniPlayer from './MiniPlayer'
@@ -9,6 +10,7 @@ export default function PlayerDock() {
   const { status, currentTrack } = useAudioPlayer()
   const [expanded, setExpanded] = useState(false)
   const [queueOpen, setQueueOpen] = useState(false)
+  const { key: locationKey } = useLocation()
   const active = status !== 'idle' && currentTrack !== null
 
   // Pemutar dikosongkan (cleanup / playlist diganti): tutup full player.
@@ -18,6 +20,13 @@ export default function PlayerDock() {
       setQueueOpen(false)
     }
   }, [active])
+
+  // Pindah halaman (termasuk tombol/gesture kembali): pemutar penuh dan antrean ikut menutup
+  // supaya halaman tujuan langsung terlihat. Musik tetap berjalan lewat mini player.
+  useEffect(() => {
+    setExpanded(false)
+    setQueueOpen(false)
+  }, [locationKey])
 
   if (!active) return null
   return (

@@ -1,6 +1,18 @@
-import { AlertCircle, ExternalLink, ListMusic, Loader2, Pause, Play, RotateCw, SkipBack, SkipForward } from 'lucide-react'
+import {
+  AlertCircle,
+  ExternalLink,
+  ListMusic,
+  Loader2,
+  Pause,
+  Play,
+  Repeat,
+  RotateCw,
+  Shuffle,
+  SkipBack,
+  SkipForward,
+} from 'lucide-react'
 import { useAudioPlayer, usePlaybackTime } from '../../hooks/useAudioPlayer'
-import type { PlaybackStatus } from '../../types/player'
+import type { PlaybackStatus, RepeatMode } from '../../types/player'
 
 type ButtonKind = 'play' | 'pause' | 'busy' | 'retry'
 
@@ -37,6 +49,74 @@ interface TransportControlsProps {
   className?: string
 }
 
+/** Teks tombol ulang, dipakai aria-label dan tooltip. Menjelaskan mode sekarang dan hasil ketukan berikutnya. */
+export function describeRepeat(repeat: RepeatMode, repeatingOnce = false): { label: string; badge: string | null } {
+  switch (repeat) {
+    case 'once':
+      return {
+        label: `Ulang 1x aktif${repeatingOnce ? ' (sedang mengulang)' : ''}. Ketuk untuk ulang terus-menerus`,
+        badge: '1',
+      }
+    case 'one':
+      return { label: 'Ulang terus-menerus aktif. Ketuk untuk mematikan', badge: '∞' }
+    default:
+      return { label: 'Ulang nonaktif. Ketuk untuk ulang 1x', badge: null }
+  }
+}
+
+/** Tombol acak: aktif / nonaktif. */
+export function ShuffleButton({ size = 'md', className = '' }: { size?: 'md' | 'lg'; className?: string }) {
+  const { shuffle, toggleShuffle } = useAudioPlayer()
+  const big = size === 'lg'
+  return (
+    <button
+      type="button"
+      onClick={toggleShuffle}
+      aria-pressed={shuffle}
+      aria-label={shuffle ? 'Acak aktif, ketuk untuk menonaktifkan' : 'Acak nonaktif, ketuk untuk mengaktifkan'}
+      title={shuffle ? 'Acak: aktif' : 'Acak: nonaktif'}
+      className={`relative items-center justify-center rounded-full transition-colors active:bg-white/10 ${
+        big ? 'h-12 w-12' : 'h-11 w-11 lg:h-9 lg:w-9'
+      } ${shuffle ? 'text-accent' : 'text-ink-muted hover:text-ink'} ${FOCUS} ${className}`}
+    >
+      <Shuffle className={big ? 'h-6 w-6' : 'h-5 w-5'} aria-hidden="true" />
+      {shuffle && <span aria-hidden="true" className="absolute bottom-1.5 h-1 w-1 rounded-full bg-accent" />}
+    </button>
+  )
+}
+
+/** Tombol mode ulang: nonaktif → ulang 1x → ulang terus-menerus. */
+export function RepeatButton({ size = 'md', className = '' }: { size?: 'md' | 'lg'; className?: string }) {
+  const { repeat, repeatingOnce, cycleRepeat } = useAudioPlayer()
+  const big = size === 'lg'
+  const { label, badge } = describeRepeat(repeat, repeatingOnce)
+  const active = repeat !== 'off'
+  return (
+    <button
+      type="button"
+      onClick={cycleRepeat}
+      aria-label={label}
+      title={label}
+      data-repeat-mode={repeat}
+      className={`relative items-center justify-center rounded-full transition-colors active:bg-white/10 ${
+        big ? 'h-12 w-12' : 'h-11 w-11 lg:h-9 lg:w-9'
+      } ${active ? 'text-accent' : 'text-ink-muted hover:text-ink'} ${FOCUS} ${className}`}
+    >
+      <Repeat className={big ? 'h-6 w-6' : 'h-5 w-5'} aria-hidden="true" />
+      {badge && (
+        <span
+          aria-hidden="true"
+          className={`absolute flex items-center justify-center rounded-full bg-accent font-bold leading-none text-black ${
+            big ? 'right-2 top-2 h-4 min-w-4 px-1 text-[10px]' : 'right-1.5 top-1.5 h-3.5 min-w-3.5 px-0.5 text-[9px] lg:right-0.5 lg:top-0.5'
+          }`}
+        >
+          {badge}
+        </span>
+      )}
+    </button>
+  )
+}
+
 /** Previous · Play/Pause · Next, semuanya memanggil aksi dari audio engine yang sama. */
 export function TransportControls({ size = 'md', className = '' }: TransportControlsProps) {
   const { status, hasPrevious, hasNext, togglePlayPause, playNext, playPrevious } = useAudioPlayer()
@@ -54,7 +134,9 @@ export function TransportControls({ size = 'md', className = '' }: TransportCont
   const canPrevious = hasPrevious || (seekable && (status === 'playing' || status === 'paused' || status === 'buffering'))
 
   return (
-    <div className={`flex items-center justify-center ${big ? 'gap-5' : 'gap-1'} ${className}`}>
+    <div className={`flex items-center justify-center ${big ? 'gap-2 sm:gap-4' : 'gap-1'} ${className}`}>
+      {/* Mini player sempit: acak & ulang ada di full player; di layar lebar ikut tampil di sini. */}
+      <ShuffleButton size={size} className={big ? 'flex' : 'hidden sm:flex'} />
       <button
         type="button"
         onClick={playPrevious}
@@ -90,6 +172,7 @@ export function TransportControls({ size = 'md', className = '' }: TransportCont
       >
         <SkipForward className={sideIcon} fill="currentColor" aria-hidden="true" />
       </button>
+      <RepeatButton size={size} className={big ? 'flex' : 'hidden sm:flex'} />
     </div>
   )
 }

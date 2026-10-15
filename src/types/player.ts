@@ -33,6 +33,14 @@ export type PlayerErrorCode =
   | 'timeout'
   | 'unknown'
 
+/**
+ * Mode ulang.
+ * off   lagu berjalan normal ke lagu berikutnya
+ * once  setiap lagu diulang 1x, baru lanjut ke lagu berikutnya
+ * one   lagu yang sama diulang terus-menerus sampai dimatikan
+ */
+export type RepeatMode = 'off' | 'once' | 'one'
+
 /** Yang dibaca komponen: state utama + turunan queue. */
 export type PlayerSnapshot = AudioPlayerState & PlayerQueueState
 
@@ -54,12 +62,19 @@ export interface AudioPlayerState {
   /** Hasil endpoint play untuk permintaan terakhir. */
   playbackInfo: PlaybackInfo | null
   error: PlayerError | null
+  /** Urutan acak (indeks queue) saat acak aktif; null jika nonaktif. Diganti bersama queue. */
+  shuffleOrder: readonly number[] | null
 }
 
 /** Turunan dari `queue` + `currentIndex` (lihat utils/playerQueue.ts). */
 export interface PlayerQueueState {
   hasPrevious: boolean
   hasNext: boolean
+  /** Acak aktif atau tidak. Tersimpan di perangkat. */
+  shuffle: boolean
+  repeat: RepeatMode
+  /** True saat lagu sedang dalam putaran ulang 1x (mode `once`). */
+  repeatingOnce: boolean
 }
 
 /** Dipisah dari state karena berubah ±4 kali per detik. */
@@ -100,6 +115,10 @@ export interface AudioPlayerActions {
    * Selain itu memutar lagu sebelumnya (atau mengulang dari awal bila ini lagu pertama).
    */
   playPrevious: () => void
+  /** Menyalakan/mematikan acak. Lagu yang sedang diputar tidak terganggu. */
+  toggleShuffle: () => void
+  /** Berputar: off → once (ulang 1x) → one (ulang terus) → off. */
+  cycleRepeat: () => void
   /** Memindahkan posisi putar. Diabaikan jika audio tidak mendukung seek. */
   seekTo: (seconds: number) => void
   /** Meminta URL baru untuk lagu aktif lalu memutar ulang (setelah error/selesai). */

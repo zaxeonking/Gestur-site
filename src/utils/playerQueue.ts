@@ -20,24 +20,60 @@ export function isValidIndex(tracks: readonly PlaylistTrack[], index: number | n
   return index !== null && Number.isInteger(index) && index >= 0 && index < tracks.length
 }
 
+/**
+ * Urutan putar acak: permutasi indeks queue (0..n-1). Queue aslinya tidak berubah, jadi tampilan
+ * lain tetap konsisten; hanya urutan "siapa setelah siapa" yang mengikuti `order`.
+ * `null` = acak nonaktif, urutan normal.
+ */
+export type ShuffleOrder = readonly number[] | null
+
+/** Acak Fisher-Yates. Lagu `first` selalu di posisi pertama (lagu yang sedang/akan diputar). */
+export function createShuffleOrder(length: number, first: number, random: () => number = Math.random): number[] {
+  const rest: number[] = []
+  for (let i = 0; i < length; i++) if (i !== first) rest.push(i)
+  for (let i = rest.length - 1; i > 0; i--) {
+    const j = Math.floor(random() * (i + 1))
+    ;[rest[i], rest[j]] = [rest[j], rest[i]]
+  }
+  return first >= 0 && first < length ? [first, ...rest] : rest
+}
+
+/** Order hanya dipakai jika cocok dengan queue (panjang sama dan memuat indeks aktif). */
+export function isOrderUsable(order: ShuffleOrder, length: number, index: number | null): order is readonly number[] {
+  return order !== null && order.length === length && index !== null && order.includes(index)
+}
+
 /** Indeks lagu berikutnya, atau null jika sudah di akhir queue (tanpa mengulang dari awal). */
-export function getNextIndex(tracks: readonly PlaylistTrack[], index: number | null): number | null {
+export function getNextIndex(
+  tracks: readonly PlaylistTrack[],
+  index: number | null,
+  order: ShuffleOrder = null,
+): number | null {
   if (!isValidIndex(tracks, index)) return null
+  if (isOrderUsable(order, tracks.length, index)) return order[order.indexOf(index) + 1] ?? null
   return index + 1 < tracks.length ? index + 1 : null
 }
 
 /** Indeks lagu sebelumnya, atau null jika ini lagu pertama. */
-export function getPreviousIndex(tracks: readonly PlaylistTrack[], index: number | null): number | null {
+export function getPreviousIndex(
+  tracks: readonly PlaylistTrack[],
+  index: number | null,
+  order: ShuffleOrder = null,
+): number | null {
   if (!isValidIndex(tracks, index)) return null
+  if (isOrderUsable(order, tracks.length, index)) {
+    const position = order.indexOf(index)
+    return position > 0 ? order[position - 1] : null
+  }
   return index > 0 ? index - 1 : null
 }
 
-export function hasNext(tracks: readonly PlaylistTrack[], index: number | null): boolean {
-  return getNextIndex(tracks, index) !== null
+export function hasNext(tracks: readonly PlaylistTrack[], index: number | null, order: ShuffleOrder = null): boolean {
+  return getNextIndex(tracks, index, order) !== null
 }
 
-export function hasPrevious(tracks: readonly PlaylistTrack[], index: number | null): boolean {
-  return getPreviousIndex(tracks, index) !== null
+export function hasPrevious(tracks: readonly PlaylistTrack[], index: number | null, order: ShuffleOrder = null): boolean {
+  return getPreviousIndex(tracks, index, order) !== null
 }
 
 /**
@@ -57,8 +93,15 @@ export function resolveQueueForTrack(
 }
 
 /** Lagu setelah posisi aktif, lengkap dengan indeksnya di `tracks` (dipakai tampilan Queue). */
-export function getUpcomingTracks(tracks: readonly PlaylistTrack[], index: number | null): IndexedTrack[] {
+export function getUpcomingTracks(
+  tracks: readonly PlaylistTrack[],
+  index: number | null,
+  order: ShuffleOrder = null,
+): IndexedTrack[] {
   if (!isValidIndex(tracks, index)) return []
+  if (isOrderUsable(order, tracks.length, index)) {
+    return order.slice(order.indexOf(index) + 1).map((queueIndex) => ({ track: tracks[queueIndex], index: queueIndex }))
+  }
   return tracks.slice(index + 1).map((track, offset) => ({ track, index: index + 1 + offset }))
 }
 
