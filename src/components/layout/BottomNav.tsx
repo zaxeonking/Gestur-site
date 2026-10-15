@@ -2,14 +2,14 @@ import { NavLink } from 'react-router-dom'
 import { navItems } from '../../config/navigation'
 
 /**
- * Tinggi total = 4rem (h-16) + 1px border + safe area bawah. MiniPlayer memakai rumus yang sama
- * untuk menempel tepat di atasnya, jadi jangan ubah salah satu tanpa yang lain.
+ * Bagian dari kolom flex AppShell (paling bawah, shrink-0), jadi selalu terlihat dan tidak
+ * pernah menutupi konten. Tinggi = 4rem + 1px border + safe area bawah.
  */
 export default function BottomNav() {
   return (
     <nav
       aria-label="Navigasi utama"
-      className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-bg/95 pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] backdrop-blur lg:hidden"
+      className="relative z-30 shrink-0 border-t border-line bg-bg/95 pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] backdrop-blur lg:hidden"
     >
       <ul className="mx-auto flex max-w-md">
         {navItems.map(({ to, label, icon: Icon }) => (

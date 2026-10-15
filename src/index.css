@@ -9,10 +9,20 @@
     -webkit-text-size-adjust: 100%;
   }
 
+  /* Halaman tidak pernah scroll sendiri; AppShell (fixed inset-0) yang mengunci layout dan
+     hanya <main> yang scroll. Mencegah lebar/tinggi berbeda antar bagian di browser mobile. */
+  html,
+  body,
+  #root {
+    height: 100%;
+    width: 100%;
+    overflow: hidden;
+  }
+
   body {
     @apply bg-bg font-sans text-ink antialiased;
     margin: 0;
-    overscroll-behavior-y: none;
+    overscroll-behavior: none;
   }
 
   ::selection {

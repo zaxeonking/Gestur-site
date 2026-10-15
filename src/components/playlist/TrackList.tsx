@@ -1,5 +1,5 @@
 import { ListMusic, Search, SearchX, X } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { RowActivity } from '../../types/player'
 import type { PlaylistTrack, PlayTrackHandler } from '../../types/spotify'
 import { buildSearchIndex, filterSearchIndex } from '../../utils/trackSearch'
@@ -15,6 +15,17 @@ interface TrackListProps {
   playingTrackId?: string | null
   /** Status playback untuk lagu aktif tersebut. */
   playbackActivity?: RowActivity
+  /**
+   * Mode terkontrol: jika diisi, kata kunci dikendalikan pemanggil dan kolom pencarian bawaan
+   * disembunyikan (dipakai halaman Cari). Tanpa prop ini perilaku lama tetap sama.
+   */
+  query?: string
+  /** Dipanggil saat tombol "Hapus pencarian" di keadaan tanpa hasil ditekan (mode terkontrol). */
+  onQueryChange?: (query: string) => void
+  /** Ikutkan album dalam pencarian. Bawaan true; halaman Cari mematikannya (judul + artis saja). */
+  includeAlbum?: boolean
+  /** Mengganti empty state bawaan saat `tracks` kosong. */
+  emptyState?: ReactNode
 }
 
 export default function TrackList({
@@ -22,8 +33,18 @@ export default function TrackList({
   onPlay,
   playingTrackId = null,
   playbackActivity = 'none',
+  query: controlledQuery,
+  onQueryChange,
+  includeAlbum = true,
+  emptyState,
 }: TrackListProps) {
-  const [query, setQuery] = useState('')
+  const controlled = controlledQuery !== undefined
+  const [innerQuery, setInnerQuery] = useState('')
+  const query = controlled ? controlledQuery : innerQuery
+  const setQuery = useCallback(
+    (value: string) => (controlled ? onQueryChange?.(value) : setInnerQuery(value)),
+    [controlled, onQueryChange],
+  )
   const [selectedId, setSelectedId] = useState<string | null>(null)
 
   // Simpan callback terbaru di ref agar baris tidak dirender ulang tiap parent render.
@@ -32,7 +53,7 @@ export default function TrackList({
     onPlayRef.current = onPlay
   }, [onPlay])
 
-  const entries = useMemo(() => buildSearchIndex(tracks), [tracks])
+  const entries = useMemo(() => buildSearchIndex(tracks, { includeAlbum }), [tracks, includeAlbum])
   const visible = useMemo(() => filterSearchIndex(entries, query), [entries, query])
   const isFiltering = query.trim() !== ''
 
@@ -42,6 +63,7 @@ export default function TrackList({
   }, [])
 
   if (tracks.length === 0) {
+    if (emptyState) return <>{emptyState}</>
     return (
       <EmptyState
         icon={ListMusic}
@@ -54,6 +76,8 @@ export default function TrackList({
   return (
     <section aria-label="Daftar lagu" className="space-y-3">
       <div>
+        {!controlled && (
+          <>
         <label htmlFor="track-filter" className="sr-only">
           Cari di playlist: judul, artis, atau album
         </label>
@@ -83,6 +107,8 @@ export default function TrackList({
             </button>
           )}
         </div>
+          </>
+        )}
         <p role="status" aria-live="polite" className="mt-2 min-h-5 px-1 text-xs text-ink-muted">
           {isFiltering ? `${visible.length} dari ${tracks.length} lagu` : ''}
         </p>

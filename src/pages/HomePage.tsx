@@ -11,7 +11,7 @@ export default function HomePage() {
         <div>
           <h1
             id="home-title"
-            className="font-display text-3xl font-extrabold tracking-tight sm:text-4xl"
+            className="font-display text-2xl font-extrabold tracking-tight sm:text-4xl"
           >
             {greeting}
           </h1>

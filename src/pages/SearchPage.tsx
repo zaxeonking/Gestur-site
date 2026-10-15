@@ -1,60 +1,63 @@
-import { Search, SearchX, X } from 'lucide-react'
+import { Music2, Search, X } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import ArtistCard from '../components/music/ArtistCard'
-import GenreTile from '../components/music/GenreTile'
-import HorizontalRow from '../components/music/HorizontalRow'
-import PlaylistCard from '../components/music/PlaylistCard'
-import TrackRow from '../components/music/TrackRow'
+import { Link } from 'react-router-dom'
+import TrackList from '../components/playlist/TrackList'
 import EmptyState from '../components/ui/EmptyState'
 import SectionHeader from '../components/ui/SectionHeader'
+import { useLibrary } from '../context/LibraryContext'
 import { usePlaylist } from '../context/PlaylistContext'
-import { artists, genres, playlists, tracks } from '../data/mock'
-import type { Artist, Playlist } from '../types'
-import { toUiTrack } from '../utils/playlistMapper'
+import { useAudioPlayer } from '../hooks/useAudioPlayer'
+import { collectAllSongs } from '../utils/allSongs'
+import { getRowActivity } from '../utils/playerStatus'
 
+/**
+ * Halaman Cari: satu daftar "All Songs" dari semua lagu yang benar-benar ada di perangkat
+ * (playlist aktif + Koleksi + riwayat putar). Kolom pencarian menyaring daftar itu berdasarkan
+ * judul dan nama artis; kolom kosong = semua lagu tampil lagi. Tidak ada data contoh.
+ */
 export default function SearchPage() {
   const [query, setQuery] = useState('')
-  const keyword = query.trim().toLowerCase()
-  const { isLive, playlist, status } = usePlaylist()
+  const { playlist, status } = usePlaylist()
+  const { saved, recent } = useLibrary()
+  const player = useAudioPlayer()
 
-  const liveTracks = useMemo(() => (playlist ? playlist.tracks.map(toUiTrack) : []), [playlist])
+  const songs = useMemo(
+    () =>
+      collectAllSongs([
+        playlist?.tracks ?? [],
+        ...saved.map((item) => item.tracks),
+        recent.map((item) => item.track),
+      ]),
+    [playlist, saved, recent],
+  )
 
-  const results = useMemo(() => {
-    if (!keyword) return null
-    const has = (value: string) => value.toLowerCase().includes(keyword)
-    const matchTrack = (t: { title: string; artist: string; album: string }) =>
-      has(t.title) || has(t.artist) || has(t.album)
-
-    // Saat API dipakai, pencarian hanya menelusuri lagu dari playlist yang dimuat.
-    if (isLive) {
-      return {
-        tracks: liveTracks.filter(matchTrack),
-        artists: [] as Artist[],
-        playlists: [] as Playlist[],
-      }
-    }
-    return {
-      tracks: tracks.filter(matchTrack),
-      artists: artists.filter((a) => has(a.name)),
-      playlists: playlists.filter((p) => has(p.title) || has(p.description)),
-    }
-  }, [keyword, isLive, liveTracks])
-
-  const liveHint = playlist
-    ? `Ketik judul lagu, artis, atau album dari “${playlist.title}”.`
-    : status === 'loading'
-      ? 'Playlist sedang dimuat. Pencarian siap setelah selesai.'
-      : 'Playlist belum dimuat. Impor tautan playlist Spotify di Beranda.'
-
-  const total = results ? results.tracks.length + results.artists.length + results.playlists.length : 0
+  const emptyState =
+    status === 'loading' ? (
+      <EmptyState
+        icon={Music2}
+        title="Memuat lagu…"
+        description="Playlist sedang dimuat. Daftar lagu muncul setelah selesai."
+      />
+    ) : (
+      <EmptyState
+        icon={Music2}
+        title="Belum ada lagu"
+        description="Muat lagu atau playlist Spotify di Beranda, atau simpan ke Koleksi. Semua lagumu akan muncul di sini."
+        action={
+          <Link to="/" className="btn-primary">
+            Ke Beranda
+          </Link>
+        }
+      />
+    )
 
   return (
-    <div className="space-y-8">
-      <h1 className="font-display text-3xl font-extrabold tracking-tight sm:text-4xl">Cari</h1>
+    <div className="space-y-6">
+      <h1 className="font-display text-2xl font-extrabold tracking-tight sm:text-4xl">Cari</h1>
 
-      <div className="sticky top-[calc(3.5rem+env(safe-area-inset-top))] z-10 -mx-4 bg-bg px-4 py-2 lg:top-0 lg:-mx-8 lg:px-8">
+      <div className="sticky top-0 z-10 -mx-4 bg-bg px-4 py-2 lg:-mx-8 lg:px-8">
         <label htmlFor="search-input" className="sr-only">
-          Cari lagu, artis, atau playlist
+          Cari lagu berdasarkan judul atau artis
         </label>
         <div className="relative">
           <Search
@@ -66,7 +69,8 @@ export default function SearchPage() {
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder={isLive ? 'Judul lagu, artis, atau album' : 'Lagu, artis, atau playlist'}
+            placeholder="Judul lagu atau artis"
+            enterKeyHint="search"
             autoComplete="off"
             className="h-12 w-full rounded-full bg-raised pl-12 pr-12 text-base text-ink placeholder:text-ink-faint focus:outline-none focus:ring-2 focus:ring-accent [&::-webkit-search-cancel-button]:hidden"
           />
@@ -83,61 +87,22 @@ export default function SearchPage() {
         </div>
       </div>
 
-      {!results && isLive && (
-        <EmptyState icon={Search} title="Cari di playlist" description={liveHint} />
-      )}
-
-      {!results && !isLive && (
-        <section aria-label="Jelajahi genre">
-          <SectionHeader title="Jelajahi genre" />
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 xl:grid-cols-4">
-            {genres.map((genre) => (
-              <GenreTile key={genre.id} genre={genre} />
-            ))}
-          </div>
-        </section>
-      )}
-
-      {results && total === 0 && (
-        <EmptyState
-          icon={SearchX}
-          title={`Tidak ada hasil untuk “${query.trim()}”`}
-          description="Periksa ejaan kata kunci, atau coba nama artis dan judul lagu lain."
+      <section aria-label="All Songs">
+        <SectionHeader
+          title="All Songs"
+          subtitle={songs.length > 0 ? `${songs.length} lagu` : undefined}
         />
-      )}
-
-      {results && results.tracks.length > 0 && (
-        <section aria-label="Lagu">
-          <SectionHeader title="Lagu" />
-          <ul className="-mx-2">
-            {results.tracks.map((track) => (
-              <TrackRow key={track.id} track={track} />
-            ))}
-          </ul>
-        </section>
-      )}
-
-      {results && results.artists.length > 0 && (
-        <section aria-label="Artis">
-          <SectionHeader title="Artis" />
-          <HorizontalRow>
-            {results.artists.map((artist) => (
-              <ArtistCard key={artist.id} artist={artist} />
-            ))}
-          </HorizontalRow>
-        </section>
-      )}
-
-      {results && results.playlists.length > 0 && (
-        <section aria-label="Playlist">
-          <SectionHeader title="Playlist" />
-          <HorizontalRow>
-            {results.playlists.map((playlist) => (
-              <PlaylistCard key={playlist.id} playlist={playlist} />
-            ))}
-          </HorizontalRow>
-        </section>
-      )}
+        <TrackList
+          tracks={songs}
+          query={query}
+          onQueryChange={setQuery}
+          includeAlbum={false}
+          emptyState={emptyState}
+          onPlay={player.selectTrack}
+          playingTrackId={player.currentTrack?.id ?? null}
+          playbackActivity={getRowActivity(player.status)}
+        />
+      </section>
     </div>
   )
 }

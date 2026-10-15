@@ -15,12 +15,21 @@ export interface SearchableTrack extends IndexedTrack {
   haystack: string
 }
 
-/** Menempelkan indeks asli playlist dan teks pencarian ke setiap lagu. */
-export function buildSearchIndex(tracks: readonly PlaylistTrack[]): SearchableTrack[] {
+/**
+ * Menempelkan indeks asli playlist dan teks pencarian ke setiap lagu.
+ * Secara bawaan teks pencarian = judul + artis + album; `includeAlbum: false` hanya judul + artis.
+ */
+export function buildSearchIndex(
+  tracks: readonly PlaylistTrack[],
+  options: { includeAlbum?: boolean } = {},
+): SearchableTrack[] {
+  const { includeAlbum = true } = options
   return tracks.map((track, index) => ({
     track,
     index,
-    haystack: normalizeSearchText(`${track.title} ${track.artists} ${track.album}`),
+    haystack: normalizeSearchText(
+      includeAlbum ? `${track.title} ${track.artists} ${track.album}` : `${track.title} ${track.artists}`,
+    ),
   }))
 }
 

@@ -58,12 +58,12 @@ export default function PlaylistHeader({
     <header className="relative isolate overflow-hidden rounded-lg bg-card p-4 sm:p-6">
       <HeaderBackdrop src={cover} />
       <div className="flex flex-col items-center gap-5 text-center sm:flex-row sm:items-end sm:gap-6 sm:text-left">
-        <div className="w-44 shrink-0 sm:w-48 lg:w-56">
+        <div className="w-40 shrink-0 sm:w-48 lg:w-56">
           <CoverArt cover={fallback} src={cover} className="shadow-2xl shadow-black/60" />
         </div>
         <div className="min-w-0">
           <p className="text-sm font-medium text-ink">Playlist</p>
-          <h2 className="mt-1 line-clamp-3 text-balance break-words font-display text-3xl font-extrabold leading-tight tracking-tight sm:text-4xl lg:text-6xl">
+          <h2 className="mt-1 line-clamp-3 text-balance break-words font-display text-2xl font-extrabold leading-tight tracking-tight sm:text-4xl lg:text-6xl">
             {title}
           </h2>
           <p className="mt-3 text-sm text-ink">

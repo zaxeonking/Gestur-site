@@ -1,4 +1,3 @@
-import { useEffect, useRef } from 'react'
 import { useAudioPlayer } from '../../hooks/useAudioPlayer'
 import { useNowPlaying } from '../../hooks/useNowPlaying'
 import { STATUS_TEXT } from '../../utils/playerStatus'
@@ -7,32 +6,14 @@ import CollectionButton from './CollectionButton'
 import { PlayerError, QueueButton, SpotifyLink, TransportControls } from './PlayerControls'
 import SeekBar from './SeekBar'
 
-/** Tinggi MiniPlayer diekspos sebagai CSS variable agar konten halaman tidak tertutup. */
-const HEIGHT_VAR = '--mini-player-h'
-
 /**
- * Mini player. Mobile: menempel tepat di atas BottomNav (tinggi 4rem + border 1px + safe area).
- * Desktop: di bawah layout, di sebelah kanan sidebar. Hanya membaca dari audio engine
+ * Mini player. Anak flex AppShell tepat di atas BottomNav (bukan position: fixed), jadi konten
+ * di atasnya otomatis berhenti di sini dan tidak pernah tertutup. Hanya membaca dari audio engine
  * lewat useAudioPlayer; tidak punya state playback sendiri.
  */
 export default function MiniPlayer({ onOpen, onOpenQueue }: { onOpen: () => void; onOpenQueue: () => void }) {
   const { status } = useAudioPlayer()
   const now = useNowPlaying()
-  const rootRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    const el = rootRef.current
-    if (!el) return
-    const root = document.documentElement
-    const update = () => root.style.setProperty(HEIGHT_VAR, `${el.offsetHeight}px`)
-    update()
-    const observer = new ResizeObserver(update)
-    observer.observe(el)
-    return () => {
-      observer.disconnect()
-      root.style.removeProperty(HEIGHT_VAR)
-    }
-  }, [])
 
   if (!now) return null
   const isError = status === 'error'
@@ -42,10 +23,9 @@ export default function MiniPlayer({ onOpen, onOpenQueue }: { onOpen: () => void
 
   return (
     <div
-      ref={rootRef}
       role="region"
       aria-label="Pemutar musik"
-      className="fixed inset-x-0 bottom-[calc(4rem+1px+env(safe-area-inset-bottom))] z-40 animate-player-up border-t border-line bg-card/95 pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] backdrop-blur lg:bottom-0 lg:left-sidebar"
+      className="relative z-40 shrink-0 animate-player-up border-t border-line bg-card pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]"
     >
       <div className="mx-auto grid max-w-6xl grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 gap-y-0.5 px-3 pb-1.5 pt-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)_minmax(0,1fr)] lg:gap-x-6 lg:px-6 lg:py-2">
         <button
