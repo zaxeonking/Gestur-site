@@ -2,6 +2,7 @@ import { Loader2 } from 'lucide-react'
 import { useEffect, useMemo, useRef, type ReactNode } from 'react'
 import { useAudioPlayer, usePlaybackTime } from '../../hooks/useAudioPlayer'
 import type { LyricsState } from '../../hooks/useLyrics'
+import type { SyncedVersion } from '../../services/lyricsApi'
 import { findActiveLine } from '../../utils/lrc'
 
 interface LyricsPanelProps {
@@ -52,7 +53,7 @@ export default function LyricsPanel({ state, onRetry }: LyricsPanelProps) {
       </div>
     )
   }
-  return <SyncedLyrics lines={result.lines} lyricsDuration={result.duration} />
+  return <SyncedLyrics primary={{ lines: result.lines, duration: result.duration }} alternatives={result.alternatives} />
 }
 
 /** Selisih durasi (detik) yang masih dianggap versi audio yang sama, dan batas di mana waktu lirik tidak bisa dipercaya. */
@@ -63,13 +64,22 @@ const FADE_MASK = {
   WebkitMaskImage: 'linear-gradient(to bottom, transparent, #000 22%, #000 78%, transparent)',
 } as const
 
-function SyncedLyrics({ lines, lyricsDuration }: { lines: { time: number; text: string }[]; lyricsDuration: number | null }) {
+/** Layar memutakhirkan waktu ±4x/detik; baris disorot sedikit lebih awal agar terasa pas dengan suara. */
+const LEAD_S = 0.3
+
+function SyncedLyrics({ primary, alternatives }: { primary: SyncedVersion; alternatives: SyncedVersion[] }) {
   const { currentTime, seekable, duration: audioDuration } = usePlaybackTime()
+  // Pilih versi lirik yang durasinya paling dekat dengan audio yang BENAR-BENAR terdengar.
+  const { lines, duration: lyricsDuration } = useMemo(() => {
+    if (audioDuration === null || alternatives.length === 0) return primary
+    const gap = (v: SyncedVersion) => (v.duration === null ? Infinity : Math.abs(v.duration - audioDuration))
+    return [primary, ...alternatives].reduce((best, v) => (gap(v) < gap(best) ? v : best))
+  }, [primary, alternatives, audioDuration])
   const { seekTo } = useAudioPlayer()
   const containerRef = useRef<HTMLDivElement>(null)
   const diff = lyricsDuration !== null && audioDuration !== null ? Math.abs(lyricsDuration - audioDuration) : 0
   const timingUnusable = diff > TIMING_UNUSABLE_S
-  const active = useMemo(() => findActiveLine(lines, currentTime + 0.1), [lines, currentTime])
+  const active = useMemo(() => findActiveLine(lines, currentTime + LEAD_S), [lines, currentTime])
 
   useEffect(() => {
     const container = containerRef.current

@@ -9,11 +9,17 @@ import { parseLrc, type LyricLine } from '../utils/lrc'
 const BASE_URL = 'https://lrclib.net/api'
 const TIMEOUT_MS = 12_000
 /** Selisih durasi terbesar antara lagu dan data lirik yang masih dianggap lagu yang sama. */
-const MAX_DURATION_DIFF_S = 8
+const MAX_DURATION_DIFF_S = 25
+
+/** Satu versi lirik bertanda waktu (LRCLIB bisa punya beberapa versi dengan durasi berbeda untuk lagu yang sama). */
+export interface SyncedVersion {
+  lines: LyricLine[]
+  duration: number | null
+}
 
 export type LyricsResult =
   /** `duration`: durasi lagu pada data lirik (detik), untuk mendeteksi versi audio yang berbeda. */
-  | { kind: 'synced'; lines: LyricLine[]; duration: number | null }
+  | { kind: 'synced'; lines: LyricLine[]; duration: number | null; alternatives: SyncedVersion[] }
   | { kind: 'plain'; lines: string[]; duration: number | null }
   | { kind: 'instrumental' }
   | { kind: 'none' }
@@ -97,10 +103,19 @@ async function getJson(path: string, params: Record<string, string>, signal: Abo
   }
 }
 
-function toResult(record: LrclibRecord): LyricsResult {
+function toResult(record: LrclibRecord, others: LrclibRecord[] = []): LyricsResult {
   if (record.syncedLyrics) {
     const lines = parseLrc(record.syncedLyrics)
-    if (lines.length > 0) return { kind: 'synced', lines, duration: record.duration }
+    if (lines.length > 0) {
+      // Versi lain (durasi berbeda) disertakan: pemutar memilih yang paling dekat dengan durasi audio sebenarnya.
+      const alternatives: SyncedVersion[] = []
+      for (const other of others) {
+        if (!other.syncedLyrics) continue
+        const parsed = parseLrc(other.syncedLyrics)
+        if (parsed.length > 0) alternatives.push({ lines: parsed, duration: other.duration })
+      }
+      return { kind: 'synced', lines, duration: record.duration, alternatives }
+    }
   }
   if (record.plainLyrics) {
     return {
@@ -141,18 +156,22 @@ export function matchesTrack(record: { trackName: string; artistName: string }, 
   return got.includes(wanted) || wanted.includes(got)
 }
 
-function pickBest(records: LrclibRecord[], durationS: number | null, title: string, artist: string): LrclibRecord | null {
+/** Kandidat yang cocok judul + artis, diurutkan: durasi paling dekat dulu, yang bertanda waktu diutamakan. */
+function rankCandidates(records: LrclibRecord[], durationS: number | null, title: string, artist: string): LrclibRecord[] {
   const candidates = records
     .filter((r) => r.instrumental || r.syncedLyrics || r.plainLyrics)
     .filter((r) => matchesTrack(r, title, artist))
     .filter((r) => durationS === null || r.duration === null || Math.abs(r.duration - durationS) <= MAX_DURATION_DIFF_S)
-  // Paling dekat durasinya dulu; yang bertanda waktu sedikit diutamakan.
   const score = (r: LrclibRecord) =>
-    (durationS !== null && r.duration !== null ? Math.abs(r.duration - durationS) : 5) + (r.syncedLyrics ? 0 : 2)
-  return [...candidates].sort((a, b) => score(a) - score(b))[0] ?? null
+    (durationS !== null && r.duration !== null ? Math.abs(r.duration - durationS) : 5) + (r.syncedLyrics ? 0 : 20)
+  return [...candidates].sort((a, b) => score(a) - score(b))
 }
 
-/** Mencari lirik lagu: cocok persis dulu (`/get`), lalu pencarian longgar (`/search`). */
+/**
+ * Mencari lirik lagu: pencocokan persis (`/get`) dan dua pencarian longgar (`/search`) dijalankan bersamaan,
+ * semua versi bertanda waktu dikumpulkan, lalu versi terdekat durasinya dengan lagu dipakai. Versi lain ikut
+ * dikembalikan supaya pemutar bisa memilih ulang memakai durasi audio yang benar-benar terdengar.
+ */
 export async function fetchLyrics(track: PlaylistTrack, options: { signal: AbortSignal }): Promise<LyricsResult> {
   const { signal } = options
   const durationS = parseDuration(track.duration)
@@ -162,21 +181,34 @@ export async function fetchLyrics(track: PlaylistTrack, options: { signal: Abort
   const exactParams: Record<string, string> = { track_name: track.title, artist_name: track.artists }
   if (track.album) exactParams.album_name = track.album
   if (durationS) exactParams.duration = String(Math.round(durationS))
-  const exact = asRecord(await getJson('/get', exactParams, signal))
-  if (exact && (exact.instrumental || exact.syncedLyrics || exact.plainLyrics) && matchesTrack(exact, title, artist)) {
-    return toResult(exact)
+
+  const requests: Array<Promise<unknown | null>> = [
+    getJson('/get', exactParams, signal),
+    getJson('/search', artist ? { track_name: title, artist_name: artist } : { track_name: title }, signal),
+    getJson('/search', { q: `${title} ${artist}`.trim() }, signal),
+  ]
+  const settled = await Promise.allSettled(requests)
+  const failures = settled.filter((r): r is PromiseRejectedResult => r.status === 'rejected')
+  const aborted = failures.find((f) => f.reason instanceof LyricsError && f.reason.code === 'aborted')
+  if (aborted) throw aborted.reason
+
+  const records: LrclibRecord[] = []
+  const exact = settled[0].status === 'fulfilled' ? asRecord(settled[0].value) : null
+  if (exact) records.push(exact)
+  for (const item of settled.slice(1)) {
+    if (item.status !== 'fulfilled' || !Array.isArray(item.value)) continue
+    for (const raw of item.value) {
+      const record = asRecord(raw)
+      if (record) records.push(record)
+    }
   }
 
-  const searches: Record<string, string>[] = [
-    artist ? { track_name: title, artist_name: artist } : { track_name: title },
-    { q: `${title} ${artist}`.trim() },
-  ]
-  for (const params of searches) {
-    const raw = await getJson('/search', params, signal)
-    if (!Array.isArray(raw)) continue
-    const records = raw.map(asRecord).filter((r): r is LrclibRecord => r !== null)
-    const best = pickBest(records, durationS, title, artist)
-    if (best) return toResult(best)
+  const ranked = rankCandidates(records, durationS, title, artist)
+  if (ranked.length > 0) {
+    const [best, ...rest] = ranked
+    return toResult(best, rest)
   }
+  // Tidak ada hasil sama sekali DAN ada permintaan yang gagal: laporkan galatnya, jangan bilang "tidak ditemukan".
+  if (failures.length > 0 && records.length === 0) throw failures[0].reason
   return { kind: 'none' }
 }
