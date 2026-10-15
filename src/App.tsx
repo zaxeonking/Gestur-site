@@ -11,7 +11,11 @@ import SearchPage from './pages/SearchPage'
 
 const router = createBrowserRouter([
   {
-    element: <AppShell />,
+    element: (
+      <PlayerUiProvider>
+        <AppShell />
+      </PlayerUiProvider>
+    ),
     children: [
       { path: '/', element: <HomePage /> },
       { path: '/search', element: <SearchPage /> },
@@ -26,11 +30,9 @@ export default function App() {
     <PlaylistProvider>
       <AudioPlayerProvider>
         <LibraryProvider>
-          <PlayerUiProvider>
-            <TrackMenuProvider>
-              <RouterProvider router={router} />
-            </TrackMenuProvider>
-          </PlayerUiProvider>
+          <TrackMenuProvider>
+            <RouterProvider router={router} />
+          </TrackMenuProvider>
         </LibraryProvider>
       </AudioPlayerProvider>
     </PlaylistProvider>

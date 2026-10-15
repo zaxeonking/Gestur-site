@@ -1,40 +1,39 @@
-import { useEffect, useState } from 'react'
-import { useLocation } from 'react-router-dom'
+import { useEffect } from 'react'
 import { usePlayerUi } from '../../context/PlayerUiContext'
 import { useAudioPlayer } from '../../hooks/useAudioPlayer'
+import { useOverlayHistory } from '../../hooks/useOverlayHistory'
 import FullPlayer from './FullPlayer'
 import MiniPlayer from './MiniPlayer'
 import QueuePanel from './QueuePanel'
 
-/** Pemilik satu-satunya state UI "full player terbuka"; semua state playback tetap di audio engine. */
+/**
+ * Merender mini player + lapisan pemutar penuh/antrean. Status "terbuka" ada di PlayerUiContext
+ * (entri riwayat), jadi tombol Kembali hanya menutup lapisan dan halaman di bawahnya tidak ikut mundur.
+ * Semua state playback tetap di audio engine.
+ */
 export default function PlayerDock() {
   const { status, currentTrack } = useAudioPlayer()
-  const { fullPlayerOpen: expanded, openFullPlayer, closeFullPlayer } = usePlayerUi()
-  const [queueOpen, setQueueOpen] = useState(false)
-  const { key: locationKey } = useLocation()
+  const { fullPlayerOpen, queueOpen, openFullPlayer, closeFullPlayer, openQueue, closeQueue, resetOverlays } =
+    usePlayerUi()
   const active = status !== 'idle' && currentTrack !== null
+  const closeQueue = useCallback(() => setQueueOpen(false), [])
 
-  // Pemutar dikosongkan (cleanup / playlist diganti): tutup full player.
-  useEffect(() => {
-    if (!active) {
-      closeFullPlayer()
-      setQueueOpen(false)
-    }
-  }, [active, closeFullPlayer])
+  // Back (tombol/gestur) hanya menutup pemutar penuh atau antrean; halaman di belakangnya tetap.
+  useOverlayHistory(expanded && active, closeFullPlayer)
+  useOverlayHistory(queueOpen && active, closeQueue)
 
-  // Pindah halaman (termasuk tombol/gesture kembali): pemutar penuh dan antrean ikut menutup
-  // supaya halaman tujuan langsung terlihat. Musik tetap berjalan lewat mini player.
+  // Pemutar dikosongkan (cleanup / playlist diganti) atau halaman dimuat ulang dengan penanda lama:
+  // bersihkan penanda lapisan.
   useEffect(() => {
-    closeFullPlayer()
-    setQueueOpen(false)
-  }, [locationKey, closeFullPlayer])
+    if (!active) resetOverlays()
+  }, [active, resetOverlays])
 
   if (!active) return null
   return (
     <>
-      <MiniPlayer onOpen={openFullPlayer} onOpenQueue={() => setQueueOpen(true)} />
-      {expanded && <FullPlayer onClose={closeFullPlayer} onOpenQueue={() => setQueueOpen(true)} />}
-      {queueOpen && <QueuePanel onClose={() => setQueueOpen(false)} />}
+      <MiniPlayer onOpen={openFullPlayer} onOpenQueue={openQueue} />
+      {fullPlayerOpen && <FullPlayer onClose={closeFullPlayer} onOpenQueue={openQueue} />}
+      {queueOpen && <QueuePanel onClose={closeQueue} />}
     </>
   )
 }

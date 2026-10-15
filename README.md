@@ -213,3 +213,16 @@ judul tidak lagi menjadi tautan ke Spotify. Jika lagunya sudah aktif, ketukan ha
 (tidak menjeda). Tombol Play/Jeda di kanan baris tetap memutar/menjeda tanpa membuka pemutar penuh.
 Tautan ke Spotify masih ada di menu tahan lama ("Buka di Spotify") dan di pemutar.
 State "pemutar penuh terbuka" ada di `context/PlayerUiContext.tsx`.
+
+### Tombol Kembali
+
+Pemutar penuh dan antrean adalah entri riwayat di halaman yang sama (URL tidak berubah). Tombol Kembali
+(hardware Android, gesture, atau browser) dan tombol turun di layar sama-sama hanya menutup lapisannya;
+halaman di bawahnya tetap. Antrean yang dibuka dari pemutar penuh menutup lebih dulu, baru pemutar penuh.
+
+## Tombol Back dan overlay
+
+Pemutar penuh, panel antrean, dan menu lagu memakai satu entri riwayat browser masing-masing
+(`hooks/useOverlayHistory.ts`). Tombol/gestur Back hanya menutup overlay paling atas dan pemutar tetap
+berjalan di mini player; halaman di belakangnya tidak ikut mundur. Menutup lewat tombol (panah bawah, tutup)
+membuang entri itu lagi sehingga riwayat tidak menumpuk.

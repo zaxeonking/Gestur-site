@@ -4,6 +4,7 @@ import type { PlaylistTrack } from '../../types/spotify'
 import { fallbackCover } from '../../utils/fallbackCover'
 import { extractTrackId } from '../../utils/spotifyUrl'
 import CoverArt from '../ui/CoverArt'
+import { useOverlayHistory } from '../../hooks/useOverlayHistory'
 import Action from './SheetAction'
 
 const FOCUS = 'focus-ring'
@@ -34,6 +35,7 @@ export default function TrackActionSheet({
   onRemove,
   onClose,
 }: TrackActionSheetProps) {
+  useOverlayHistory(true, onClose)
   const sheetRef = useRef<HTMLDivElement>(null)
   const fallback = useMemo(() => fallbackCover(`${track.title}${track.album}`), [track.title, track.album])
   const href = extractTrackId(track.url) ? track.url : undefined

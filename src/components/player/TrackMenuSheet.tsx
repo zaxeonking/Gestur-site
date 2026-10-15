@@ -7,6 +7,7 @@ import { fallbackCover } from '../../utils/fallbackCover'
 import { getUpcomingTracks } from '../../utils/playerQueue'
 import { extractTrackId } from '../../utils/spotifyUrl'
 import CoverArt from '../ui/CoverArt'
+import { useOverlayHistory } from '../../hooks/useOverlayHistory'
 import Action from './SheetAction'
 
 const FOCUS = 'focus-ring'
@@ -32,6 +33,7 @@ interface TrackMenuSheetProps {
  */
 export default function TrackMenuSheet({ track, onClose, onToast }: TrackMenuSheetProps) {
   const player = useAudioPlayer()
+  useOverlayHistory(true, onClose)
   const sheetRef = useRef<HTMLDivElement>(null)
   const fallback = useMemo(() => fallbackCover(`${track.title}${track.album}`), [track.title, track.album])
   const href = extractTrackId(track.url) ? track.url : undefined
