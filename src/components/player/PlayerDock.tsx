@@ -1,7 +1,6 @@
 import { useEffect } from 'react'
 import { usePlayerUi } from '../../context/PlayerUiContext'
 import { useAudioPlayer } from '../../hooks/useAudioPlayer'
-import { useOverlayHistory } from '../../hooks/useOverlayHistory'
 import FullPlayer from './FullPlayer'
 import MiniPlayer from './MiniPlayer'
 import QueuePanel from './QueuePanel'
@@ -16,11 +15,6 @@ export default function PlayerDock() {
   const { fullPlayerOpen, queueOpen, openFullPlayer, closeFullPlayer, openQueue, closeQueue, resetOverlays } =
     usePlayerUi()
   const active = status !== 'idle' && currentTrack !== null
-  const closeQueue = useCallback(() => setQueueOpen(false), [])
-
-  // Back (tombol/gestur) hanya menutup pemutar penuh atau antrean; halaman di belakangnya tetap.
-  useOverlayHistory(expanded && active, closeFullPlayer)
-  useOverlayHistory(queueOpen && active, closeQueue)
 
   // Pemutar dikosongkan (cleanup / playlist diganti) atau halaman dimuat ulang dengan penanda lama:
   // bersihkan penanda lapisan.

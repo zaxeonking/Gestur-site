@@ -212,7 +212,7 @@ Ketuk biasa pada baris lagu (playlist, Cari, riwayat) memutar lagu itu dan membu
 judul tidak lagi menjadi tautan ke Spotify. Jika lagunya sudah aktif, ketukan hanya membuka pemutar penuh
 (tidak menjeda). Tombol Play/Jeda di kanan baris tetap memutar/menjeda tanpa membuka pemutar penuh.
 Tautan ke Spotify masih ada di menu tahan lama ("Buka di Spotify") dan di pemutar.
-State "pemutar penuh terbuka" ada di `context/PlayerUiContext.tsx`.
+State "pemutar penuh terbuka" ada di `context/PlayerUiContext.tsx` (lihat bagian Tombol Back).
 
 ### Tombol Kembali
 
@@ -222,7 +222,11 @@ halaman di bawahnya tetap. Antrean yang dibuka dari pemutar penuh menutup lebih 
 
 ## Tombol Back dan overlay
 
-Pemutar penuh, panel antrean, dan menu lagu memakai satu entri riwayat browser masing-masing
-(`hooks/useOverlayHistory.ts`). Tombol/gestur Back hanya menutup overlay paling atas dan pemutar tetap
-berjalan di mini player; halaman di belakangnya tidak ikut mundur. Menutup lewat tombol (panah bawah, tutup)
-membuang entri itu lagi sehingga riwayat tidak menumpuk.
+Pemutar penuh dan panel antrean disimpan sebagai entri riwayat React Router (`context/PlayerUiContext.tsx`):
+membuka = menambah satu entri di halaman yang sama (URL tidak berubah, ada penanda di `location.state`),
+Back = membuang entri itu. Jadi Back hanya menutup lapisan paling atas, lagu lanjut di mini player, dan
+halaman di bawahnya tidak ikut mundur. Tombol tutup di layar memakai `navigate(-1)`, hasilnya sama dengan Back.
+Antrean yang dibuka dari pemutar penuh menumpuk di atasnya: Back menutup antrean dulu, lalu pemutar.
+
+Menu tahan-lama (menu lagu dan menu di panel antrean) bukan bagian dari state router; keduanya memakai
+`hooks/useOverlayHistory.ts` agar Back juga hanya menutup menu itu.
