@@ -46,8 +46,19 @@ export function installBackGuard(router: DataRouter): void {
 
     if (target === HOME) {
       const idx = window.history.state?.idx
-      if (typeof idx === 'number' && idx > 0) return original(-idx)
-      return original(to as never, { ...opts, replace: true } as never)
+      const goHomeDirect = () => original(to as never, { ...opts, replace: true } as never)
+      if (typeof idx === 'number' && idx > 0) {
+        original(-idx)
+        // Jaring pengaman: kalau mundur ternyata tidak mendarat di "/", paksa pindah langsung
+        // supaya tombol Beranda tidak pernah terasa mati.
+        return new Promise<void>((resolve) => {
+          window.setTimeout(() => {
+            if (window.location.pathname !== HOME) void goHomeDirect()
+            resolve()
+          }, 400)
+        })
+      }
+      return goHomeDirect()
     }
 
     if (here !== HOME) return original(to as never, { ...opts, replace: true } as never)
