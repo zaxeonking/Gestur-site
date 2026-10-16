@@ -1,8 +1,8 @@
 import { Loader2 } from 'lucide-react'
-import { useEffect, useMemo, useRef, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useAudioPlayer, usePlaybackTime } from '../../hooks/useAudioPlayer'
 import type { LyricsState } from '../../hooks/useLyrics'
-import type { SyncedVersion } from '../../services/lyricsApi'
+import type { LyricsResult, SyncedVersion } from '../../services/lyricsApi'
 import { findActiveLine } from '../../utils/lrc'
 
 interface LyricsPanelProps {
@@ -53,7 +53,7 @@ export default function LyricsPanel({ state, onRetry }: LyricsPanelProps) {
       </div>
     )
   }
-  return <SyncedLyrics primary={{ lines: result.lines, duration: result.duration }} alternatives={result.alternatives} />
+  return <SyncedLyrics result={result} />
 }
 
 /** Selisih durasi (detik) yang masih dianggap versi audio yang sama, dan batas di mana waktu lirik tidak bisa dipercaya. */
@@ -67,14 +67,24 @@ const FADE_MASK = {
 /** Layar memutakhirkan waktu ±4x/detik; baris disorot sedikit lebih awal agar terasa pas dengan suara. */
 const LEAD_S = 0.3
 
-function SyncedLyrics({ primary, alternatives }: { primary: SyncedVersion; alternatives: SyncedVersion[] }) {
+function SyncedLyrics({ result }: { result: Extract<LyricsResult, { kind: 'synced' }> }) {
+  // `result` stabil selama lagu sama, jadi `primary` tidak berubah identitas di setiap render.
+  const primary = useMemo<SyncedVersion>(() => ({ lines: result.lines, duration: result.duration }), [result])
+  const alternatives = result.alternatives
   const { currentTime, seekable, duration: audioDuration } = usePlaybackTime()
-  // Pilih versi lirik yang durasinya paling dekat dengan audio yang BENAR-BENAR terdengar.
-  const { lines, duration: lyricsDuration } = useMemo(() => {
-    if (audioDuration === null || alternatives.length === 0) return primary
+  // Pilih versi yang durasinya paling dekat dengan audio SATU KALI saja (saat durasi audio pertama diketahui),
+  // lalu kunci. Berganti versi di tengah lagu membuat lirik loncat-loncat.
+  const [picked, setPicked] = useState<SyncedVersion | null>(null)
+  useEffect(() => setPicked(null), [primary])
+  useEffect(() => {
+    if (picked !== null || alternatives.length === 0) return
+    if (audioDuration === null || !Number.isFinite(audioDuration) || audioDuration <= 0) return
     const gap = (v: SyncedVersion) => (v.duration === null ? Infinity : Math.abs(v.duration - audioDuration))
-    return [primary, ...alternatives].reduce((best, v) => (gap(v) < gap(best) ? v : best))
-  }, [primary, alternatives, audioDuration])
+    const best = alternatives.reduce((a, b) => (gap(b) < gap(a) ? b : a))
+    // Ganti hanya jika jelas lebih pas (>= 2 dtk lebih dekat dari versi utama).
+    setPicked(gap(best) <= gap(primary) - 2 ? best : primary)
+  }, [picked, primary, alternatives, audioDuration])
+  const { lines, duration: lyricsDuration } = picked ?? primary
   const { seekTo } = useAudioPlayer()
   const containerRef = useRef<HTMLDivElement>(null)
   const diff = lyricsDuration !== null && audioDuration !== null ? Math.abs(lyricsDuration - audioDuration) : 0

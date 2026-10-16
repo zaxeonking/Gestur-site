@@ -9,7 +9,7 @@ import { parseLrc, type LyricLine } from '../utils/lrc'
 const BASE_URL = 'https://lrclib.net/api'
 const TIMEOUT_MS = 12_000
 /** Selisih durasi terbesar antara lagu dan data lirik yang masih dianggap lagu yang sama. */
-const MAX_DURATION_DIFF_S = 25
+const MAX_DURATION_DIFF_S = 8
 
 /** Satu versi lirik bertanda waktu (LRCLIB bisa punya beberapa versi dengan durasi berbeda untuk lagu yang sama). */
 export interface SyncedVersion {
@@ -42,6 +42,8 @@ interface LrclibRecord {
   instrumental: boolean
   plainLyrics: string | null
   syncedLyrics: string | null
+  /** Asal data; LRCLIB diutamakan karena paling konsisten. */
+  source?: 'lrclib' | 'netease' | 'ovh'
 }
 
 /** Artis utama: "A, B" / "A & B" / "A feat. B" -> "A". */
@@ -111,6 +113,8 @@ function toResult(record: LrclibRecord, others: LrclibRecord[] = []): LyricsResu
       const alternatives: SyncedVersion[] = []
       for (const other of others) {
         if (!other.syncedLyrics) continue
+        // Hanya versi yang durasinya mirip versi utama (selisih <= 6 dtk); versi beda jauh (live, extended) menyesatkan.
+        if (record.duration !== null && other.duration !== null && Math.abs(other.duration - record.duration) > 6) continue
         const parsed = parseLrc(other.syncedLyrics)
         if (parsed.length > 0) alternatives.push({ lines: parsed, duration: other.duration })
       }
@@ -162,8 +166,12 @@ function rankCandidates(records: LrclibRecord[], durationS: number | null, title
     .filter((r) => r.instrumental || r.syncedLyrics || r.plainLyrics)
     .filter((r) => matchesTrack(r, title, artist))
     .filter((r) => durationS === null || r.duration === null || Math.abs(r.duration - durationS) <= MAX_DURATION_DIFF_S)
+    // NetEase tanpa durasi tidak bisa diverifikasi waktunya: lebih baik dilewati daripada lirik ngaco.
+    .filter((r) => r.source !== 'netease' || r.duration !== null)
   const score = (r: LrclibRecord) =>
-    (durationS !== null && r.duration !== null ? Math.abs(r.duration - durationS) : 5) + (r.syncedLyrics ? 0 : 20)
+    (durationS !== null && r.duration !== null ? Math.abs(r.duration - durationS) : 5) +
+    (r.syncedLyrics ? 0 : 20) +
+    (r.source === 'netease' ? 4 : 0) // LRCLIB menang jika kualitasnya kira-kira sama
   return [...candidates].sort((a, b) => score(a) - score(b))
 }
 
@@ -203,12 +211,12 @@ async function lrclibRecords(track: PlaylistTrack, title: string, artist: string
   ])
   const records: LrclibRecord[] = []
   const exact = settled[0].status === 'fulfilled' ? asRecord(settled[0].value) : null
-  if (exact) records.push(exact)
+  if (exact) records.push({ ...exact, source: 'lrclib' })
   for (const item of settled.slice(1)) {
     if (item.status !== 'fulfilled' || !Array.isArray(item.value)) continue
     for (const raw of item.value) {
       const record = asRecord(raw)
-      if (record) records.push(record)
+      if (record) records.push({ ...record, source: 'lrclib' })
     }
   }
   const failed = settled.find((r): r is PromiseRejectedResult => r.status === 'rejected')
@@ -266,6 +274,7 @@ async function neteaseRecords(title: string, artist: string, signal: AbortSignal
       instrumental: false,
       plainLyrics: null,
       syncedLyrics: stripCredits(lrc),
+      source: 'netease',
     })
   })
   const failed = settled.find((r): r is PromiseRejectedResult => r.status === 'rejected')
@@ -279,7 +288,7 @@ async function ovhRecords(title: string, artist: string, signal: AbortSignal): P
   const body = await getJson(LYRICS_OVH, `/${encodeURIComponent(artist)}/${encodeURIComponent(title)}`, {}, signal)
   const lyrics = typeof body === 'object' && body !== null ? (body as { lyrics?: unknown }).lyrics : null
   if (typeof lyrics !== 'string' || !lyrics.trim()) return []
-  return [{ trackName: title, artistName: artist, duration: null, instrumental: false, plainLyrics: lyrics.trim(), syncedLyrics: null }]
+  return [{ trackName: title, artistName: artist, duration: null, instrumental: false, plainLyrics: lyrics.trim(), syncedLyrics: null, source: 'ovh' }]
 }
 
 /** Setelah ada versi bertanda waktu, sumber lain masih ditunggu sebentar supaya bisa dibandingkan. */
