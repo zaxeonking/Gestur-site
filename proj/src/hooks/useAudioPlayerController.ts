@@ -54,6 +54,15 @@ interface StartOptions {
   keepReplay?: boolean
 }
 
+/** Lagu berikutnya yang sedang/sudah dimuat di elemen cadangan untuk crossfade. */
+interface Preload {
+  trackId: string
+  index: number
+  status: 'resolving' | 'ready'
+  info: PlaybackInfo | null
+  controller: AbortController
+}
+
 /** Seek hanya bermakna saat audio sudah memuat dan belum selesai. */
 const SEEKABLE_STATUSES: PlaybackStatus[] = ['playing', 'buffering', 'paused']
 /** Di atas ini, tombol Previous mengulang lagu dari awal (jika bisa di-seek). */
@@ -80,24 +89,40 @@ function errorMessage(code: PlayerErrorCode): string {
   }
 }
 
+/** Pilihan lama crossfade (detik) yang diterima dari penyimpanan / UI. */
+export const CROSSFADE_OPTIONS_S = [0, 3, 5, 8, 12] as const
+const DEFAULT_CROSSFADE_S = 5
+/**
+ * Lagu berikutnya mulai dimuat sebanyak ini (detik) SEBELUM crossfade dimulai, supaya URL sempat diambil
+ * dan audionya ter-buffer. Tanpa ini crossfade harus menunggu jaringan dan muncul jeda.
+ */
+const PRELOAD_LEAD_S = 20
+/** Sleep timer "akhir lagu": volume mulai mengecil pada sekian detik terakhir lagu. */
+const TRACK_END_FADE_S = 8
+
 const PREFS_KEY = 'musicverse.player.prefs.v1'
 const REPEAT_CYCLE: Record<RepeatMode, RepeatMode> = { off: 'once', once: 'one', one: 'off' }
 
 interface PlayerPrefs {
   shuffle: boolean
   repeat: RepeatMode
+  crossfadeSeconds: number
 }
 
 /** Preferensi acak/ulang disimpan di perangkat; data rusak atau storage terblokir = default. */
 function loadPrefs(): PlayerPrefs {
   const result = readJson(PREFS_KEY)
   if (result.status !== 'ok' || typeof result.value !== 'object' || result.value === null) {
-    return { shuffle: false, repeat: 'off' }
+    return { shuffle: false, repeat: 'off', crossfadeSeconds: DEFAULT_CROSSFADE_S }
   }
-  const { shuffle, repeat } = result.value as Record<string, unknown>
+  const { shuffle, repeat, crossfadeSeconds } = result.value as Record<string, unknown>
   return {
     shuffle: shuffle === true,
     repeat: repeat === 'once' || repeat === 'one' ? repeat : 'off',
+    // Data lama (tanpa kolom ini) atau nilai asing = default.
+    crossfadeSeconds: (CROSSFADE_OPTIONS_S as readonly unknown[]).includes(crossfadeSeconds)
+      ? (crossfadeSeconds as number)
+      : DEFAULT_CROSSFADE_S,
   }
 }
 
@@ -132,6 +157,8 @@ export function useAudioPlayerController(playlistTracks: PlaylistTrack[]) {
   const restartQueueRef = useRef<() => void>(() => {})
   // Memutar ulang lagu aktif tanpa meminta URL baru (tanpa jeda); dipakai mode ulang.
   const replayCurrentRef = useRef<() => void>(() => {})
+  // Dipanggil tiap `timeupdate`: memuat lagu berikutnya lebih awal, memulai crossfade, dan meredam volume akhir lagu.
+  const crossfadeStepRef = useRef<(event: AudioEngineEvent) => void>(() => {})
   const timeRef = useRef<PlaybackTime>(initialTime)
   const updateTime = useCallback((next: (prev: PlaybackTime) => PlaybackTime) => {
     const value = next(timeRef.current)
@@ -143,6 +170,9 @@ export function useAudioPlayerController(playlistTracks: PlaylistTrack[]) {
   // stateRef adalah sumber kebenaran untuk aksi/event; setState hanya memicu render.
   const stateRef = useRef<AudioPlayerState>(initialState)
   const requestIdRef = useRef(0)
+  const preloadRef = useRef<Preload | null>(null)
+  // True dari saat crossfade diputuskan sampai engine selesai berpindah; mencegah pemicu ganda.
+  const crossfadingRef = useRef(false)
   const controllerRef = useRef<AbortController | null>(null)
   const startTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -176,6 +206,14 @@ export function useAudioPlayerController(playlistTracks: PlaylistTrack[]) {
     [clearStartTimer, commit],
   )
 
+  /** Membatalkan permintaan URL lagu berikutnya dan melepas audio yang sudah dimuat untuk crossfade. */
+  const discardPreload = useCallback(() => {
+    preloadRef.current?.controller.abort()
+    preloadRef.current = null
+    crossfadingRef.current = false
+    audioEngine.clearPreload()
+  }, [])
+
   /** Event dari HTMLAudioElement: satu-satunya jalan menuju status playing/paused/buffering/ended. */
   const handleEngineEvent = useCallback(
     (event: AudioEngineEvent) => {
@@ -205,6 +243,7 @@ export function useAudioPlayerController(playlistTracks: PlaylistTrack[]) {
         case 'loadedmetadata':
         case 'progress':
         case 'seeked':
+          if (event.type === 'timeupdate') crossfadeStepRef.current(event)
           updateTime((prev) =>
             prev.currentTime === event.currentTime &&
             prev.duration === event.duration &&
@@ -275,6 +314,8 @@ export function useAudioPlayerController(playlistTracks: PlaylistTrack[]) {
       requestIdRef.current++
       controllerRef.current?.abort()
       controllerRef.current = null
+      preloadRef.current?.controller.abort()
+      preloadRef.current = null
       clearStartTimer()
       audioEngine.dispose()
     }
@@ -302,7 +343,9 @@ export function useAudioPlayerController(playlistTracks: PlaylistTrack[]) {
             ? previous.shuffleOrder
             : createShuffleOrder(queue.length, index)
       }
-      // Harus sinkron di dalam gestur klik (lihat AudioEngine.prime). Juga menghentikan lagu lama.
+      // Harus sinkron di dalam gestur klik (lihat AudioEngine.prime). Juga menghentikan lagu lama
+      // dan membuang lagu yang sudah dimuat untuk crossfade (daftar berikutnya bisa saja berubah).
+      discardPreload()
       audioEngine.prime()
       clearStartTimer()
       controllerRef.current?.abort()
@@ -357,7 +400,7 @@ export function useAudioPlayerController(playlistTracks: PlaylistTrack[]) {
         }
       })()
     },
-    [clearStartTimer, commit, fail, updateTime],
+    [clearStartTimer, commit, discardPreload, fail, updateTime],
   )
 
   /** Lagu dipilih pengguna: putar langsung, queue disesuaikan dengan playlist aktif. */
@@ -385,6 +428,7 @@ export function useAudioPlayerController(playlistTracks: PlaylistTrack[]) {
   const setStopAfterTrack = useCallback((enabled: boolean) => {
     stopAfterTrackRef.current = enabled
     setStopAfterTrackState(enabled)
+    if (!enabled) audioEngine.setTrackEndGain(1)
   }, [])
 
   const togglePlayPause = useCallback(() => {
@@ -434,6 +478,7 @@ export function useAudioPlayerController(playlistTracks: PlaylistTrack[]) {
     controllerRef.current?.abort()
     controllerRef.current = null
     clearStartTimer()
+    discardPreload()
     audioEngine.stop()
     stopAfterTrackRef.current = false
     setStopAfterTrackState(false)
@@ -442,7 +487,7 @@ export function useAudioPlayerController(playlistTracks: PlaylistTrack[]) {
       setState(initialState)
     }
     updateTime(() => initialTime)
-  }, [clearStartTimer, updateTime])
+  }, [clearStartTimer, discardPreload, updateTime])
 
   const retry = useCallback(() => {
     const { status, queue, currentIndex } = stateRef.current
@@ -570,12 +615,113 @@ export function useAudioPlayerController(playlistTracks: PlaylistTrack[]) {
     replayCurrentRef.current = replayCurrent
   }, [replayCurrent])
 
+  /**
+   * Crossfade: (1) menjelang akhir lagu, minta URL lagu berikutnya dan muat di elemen cadangan;
+   * (2) pada `fade` detik terakhir, mulai memutarnya dengan volume naik sambil lagu ini memudar,
+   * lalu pindahkan state ke lagu baru. Bila ada yang tidak siap (jaringan lambat, play() ditolak),
+   * tidak ada yang diubah dan alur normal (`ended` → lagu berikutnya) tetap jalan.
+   */
+  const crossfadeStep = useCallback(
+    (event: AudioEngineEvent) => {
+      const { status, queue, currentIndex, shuffleOrder } = stateRef.current
+      if (status !== 'playing' || currentIndex === null || crossfadingRef.current) return
+      const duration = event.duration
+      if (duration === null || duration <= 0) return
+      const remaining = duration - event.currentTime
+
+      // Sleep timer "akhir lagu": volume mengecil di detik-detik terakhir, tanpa crossfade.
+      if (stopAfterTrackRef.current) {
+        audioEngine.setTrackEndGain(remaining >= TRACK_END_FADE_S ? 1 : Math.max(0, remaining / TRACK_END_FADE_S) ** 2)
+        return
+      }
+
+      const fadeSetting = prefsRef.current.crossfadeSeconds
+      if (fadeSetting <= 0 || !audioEngine.supportsVolumeFade()) return
+      const { repeat } = prefsRef.current
+      // Lagu yang akan diulang tidak bertukar dengan lagu lain.
+      if (repeat === 'one' || (repeat === 'once' && !replayedRef.current)) return
+      // Lagu pendek: jangan sampai fade memakan lebih dari sepertiganya.
+      const fade = Math.min(fadeSetting, duration / 3)
+      if (remaining > fade + PRELOAD_LEAD_S || remaining <= 0.2) return
+
+      const nextIndex = getNextIndex(queue, currentIndex, shuffleOrder)
+      const nextTrack = nextIndex === null ? null : queue[nextIndex]
+      if (nextIndex === null || !nextTrack) return // antrean habis: alur normal (berhenti / putar ulang)
+
+      let preload = preloadRef.current
+      // Daftar "Berikutnya" berubah sejak dimuat: buang dan muat yang baru.
+      if (preload && (preload.trackId !== nextTrack.id || preload.index !== nextIndex)) {
+        discardPreload()
+        preload = null
+      }
+      if (!preload) {
+        if (audioEngine.isCrossfading()) return
+        const controller = new AbortController()
+        const entry: Preload = { trackId: nextTrack.id, index: nextIndex, status: 'resolving', info: null, controller }
+        preloadRef.current = entry
+        void (async () => {
+          try {
+            const info = await fetchPlaybackInfo(nextTrack, { signal: controller.signal })
+            if (preloadRef.current !== entry) return
+            if (!audioEngine.preload(info.audioUrl)) {
+              preloadRef.current = null // belum bisa dipakai; dicoba lagi pada timeupdate berikutnya
+              return
+            }
+            entry.info = info
+            entry.status = 'ready'
+          } catch {
+            // Gagal (jaringan / tidak ada audio): biarkan alur normal yang menangani saat lagu selesai.
+            // Entri dibiarkan 'resolving' agar tidak dicoba berulang tiap timeupdate untuk lagu ini.
+          }
+        })()
+        return
+      }
+      if (preload.status !== 'ready' || !preload.info || remaining > fade) return
+      if (!audioEngine.isPreloadReady(preload.info.audioUrl)) return
+
+      crossfadingRef.current = true
+      const info = preload.info
+      const requestId = requestIdRef.current
+      void audioEngine.crossfadeToStandby(fade * 1000).then((switched) => {
+        crossfadingRef.current = false
+        if (requestIdRef.current !== requestId || preloadRef.current !== preload) return
+        preloadRef.current = null
+        if (!switched) return // play() ditolak: lagu lama jalan terus, alur normal saat selesai
+        // Lagu baru sudah terdengar: sinkronkan state (urutan acak dipertahankan, antrean sama).
+        replayedRef.current = false
+        setRepeatingOnce(false)
+        requestIdRef.current++
+        commit({ currentTrack: nextTrack, currentIndex: nextIndex, playbackInfo: info, error: null })
+      })
+    },
+    [commit, discardPreload],
+  )
+  useEffect(() => {
+    crossfadeStepRef.current = crossfadeStep
+  }, [crossfadeStep])
+
+  const fadeOutAndPause = useCallback((durationMs: number) => {
+    if (ACTIVE_STATUSES.includes(stateRef.current.status)) audioEngine.fadeOutAndPause(durationMs)
+  }, [])
+
+  const cancelFade = useCallback(() => {
+    audioEngine.cancelFade()
+  }, [])
+
   const updatePrefs = useCallback((patch: Partial<PlayerPrefs>) => {
     const next = { ...prefsRef.current, ...patch }
     prefsRef.current = next
     setPrefs(next)
     writeJson(PREFS_KEY, next) // gagal menyimpan (storage terblokir) tidak mengubah perilaku sesi ini
   }, [])
+
+  const setCrossfade = useCallback(
+    (seconds: number) => {
+      updatePrefs({ crossfadeSeconds: (CROSSFADE_OPTIONS_S as readonly number[]).includes(seconds) ? seconds : 0 })
+      if (seconds <= 0) discardPreload()
+    },
+    [discardPreload, updatePrefs],
+  )
 
   const toggleShuffle = useCallback(() => {
     const enabled = !prefsRef.current.shuffle
@@ -625,6 +771,9 @@ export function useAudioPlayerController(playlistTracks: PlaylistTrack[]) {
       togglePlayPause,
       pause,
       setStopAfterTrack,
+      fadeOutAndPause,
+      cancelFade,
+      setCrossfade,
       playNext,
       playPrevious,
       toggleShuffle,
@@ -645,6 +794,9 @@ export function useAudioPlayerController(playlistTracks: PlaylistTrack[]) {
       togglePlayPause,
       pause,
       setStopAfterTrack,
+      fadeOutAndPause,
+      cancelFade,
+      setCrossfade,
       playNext,
       playPrevious,
       toggleShuffle,
@@ -656,7 +808,8 @@ export function useAudioPlayerController(playlistTracks: PlaylistTrack[]) {
   )
 
   const { queue, currentIndex, shuffleOrder } = state
-  const { shuffle, repeat } = prefs
+  const { shuffle, repeat, crossfadeSeconds } = prefs
+  const crossfadeSupported = audioEngine.supportsVolumeFade()
   const queueState = useMemo<PlayerQueueState>(
     () => ({
       hasPrevious: hasPrevious(queue, currentIndex, shuffleOrder),
@@ -665,8 +818,10 @@ export function useAudioPlayerController(playlistTracks: PlaylistTrack[]) {
       repeat,
       repeatingOnce: repeat === 'once' && repeatingOnce,
       stopAfterTrack,
+      crossfadeSeconds,
+      crossfadeSupported,
     }),
-    [queue, currentIndex, shuffleOrder, shuffle, repeat, repeatingOnce, stopAfterTrack],
+    [queue, currentIndex, shuffleOrder, shuffle, repeat, repeatingOnce, stopAfterTrack, crossfadeSeconds, crossfadeSupported],
   )
 
   return { state, time, queueState, actions }

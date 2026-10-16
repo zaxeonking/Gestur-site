@@ -77,6 +77,10 @@ export interface PlayerQueueState {
   repeatingOnce: boolean
   /** Pemutaran berhenti saat lagu yang sedang berjalan selesai (sleep timer "akhir lagu"). */
   stopAfterTrack: boolean
+  /** Lama crossfade antar lagu (detik); 0 = mati. Tersimpan di perangkat. */
+  crossfadeSeconds: number
+  /** False jika perangkat tidak bisa mengatur volume audio (iOS Safari): crossfade & fade tidak tersedia. */
+  crossfadeSupported: boolean
 }
 
 /** Dipisah dari state karena berubah ±4 kali per detik. */
@@ -151,6 +155,15 @@ export interface AudioPlayerActions {
    * mengulang, atau memutar ulang antrean. Padam sendiri setelah terpakai.
    */
   setStopAfterTrack: (enabled: boolean) => void
+  /**
+   * Volume mengecil pelan selama `durationMs` sampai senyap, lalu musik dijeda (posisi tersimpan).
+   * Dipakai sleep timer. Tanpa kontrol volume di perangkat, langsung dijeda.
+   */
+  fadeOutAndPause: (durationMs: number) => void
+  /** Membatalkan fade-out yang sedang berjalan dan mengembalikan volume penuh. */
+  cancelFade: () => void
+  /** Mengatur crossfade antar lagu: 0 = mati, selain itu lamanya dalam detik. */
+  setCrossfade: (seconds: number) => void
   /** Memutar lagu berikutnya di queue. Tidak melakukan apa pun jika sudah di akhir. */
   playNext: () => void
   /**

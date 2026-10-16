@@ -85,9 +85,9 @@ export default function SleepTimerSheet({ onClose }: { onClose: () => void }) {
 
   const status =
     remaining !== null
-      ? `Musik dijeda dalam ${formatTime(remaining)}`
+      ? `Volume mengecil pelan, musik dijeda dalam ${formatTime(remaining)}`
       : atTrackEnd
-        ? 'Musik berhenti setelah lagu ini selesai'
+        ? 'Volume mengecil di akhir lagu, lalu musik berhenti'
         : 'Musik berhenti sendiri setelah waktu yang kamu pilih'
 
   return createPortal(

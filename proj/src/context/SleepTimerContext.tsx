@@ -15,19 +15,26 @@ interface SleepTimerApi {
 
 const SleepTimerContext = createContext<SleepTimerApi | null>(null)
 
+/** Volume mengecil pelan selama ini (ms) dan tepat senyap saat waktu timer habis. */
+export const SLEEP_FADE_MS = 30_000
+
 /**
- * Sleep timer. Berada di atas halaman, jadi tetap berjalan saat pemutar penuh ditutup. Saat waktunya habis,
- * musik DIJEDA (bisa dilanjutkan). Mode "akhir lagu" ditangani pemutar sendiri (`stopAfterTrack`).
+ * Sleep timer. Berada di atas halaman, jadi tetap berjalan saat pemutar penuh ditutup. Volume mulai mengecil
+ * `SLEEP_FADE_MS` sebelum waktunya habis; saat habis, musik DIJEDA (bisa dilanjutkan, volume kembali penuh). Mode "akhir lagu" ditangani pemutar sendiri (`stopAfterTrack`).
  * Harus berada di dalam <AudioPlayerProvider>.
  */
 export function SleepTimerProvider({ children }: { children: ReactNode }) {
   const player = useAudioPlayer()
-  const { pause, setStopAfterTrack, stopAfterTrack } = player
+  const { pause, fadeOutAndPause, cancelFade, setStopAfterTrack, stopAfterTrack } = player
   const [endsAt, setEndsAt] = useState<number | null>(null)
   const pauseRef = useRef(pause)
+  const fadeRef = useRef(fadeOutAndPause)
+  const cancelFadeRef = useRef(cancelFade)
   useEffect(() => {
     pauseRef.current = pause
-  }, [pause])
+    fadeRef.current = fadeOutAndPause
+    cancelFadeRef.current = cancelFade
+  }, [pause, fadeOutAndPause, cancelFade])
 
   useEffect(() => {
     if (endsAt === null) return
@@ -35,15 +42,29 @@ export function SleepTimerProvider({ children }: { children: ReactNode }) {
       pauseRef.current()
       setEndsAt(null)
     }
+    // Fade berakhir tepat di `endsAt`. Timer pendek (< SLEEP_FADE_MS) memudar selama sisa waktunya.
+    let fadeTimer: number | undefined
+    const startFade = () => {
+      const left = endsAt - Date.now()
+      if (left <= 0) fire()
+      else fadeRef.current(left)
+    }
     // Tab di background bisa menunda setTimeout; cek ulang waktunya saat tab kembali terlihat.
     const onVisible = () => {
-      if (document.visibilityState === 'visible' && Date.now() >= endsAt) fire()
+      if (document.visibilityState !== 'visible') return
+      if (Date.now() >= endsAt) fire()
     }
+    const untilFade = endsAt - Date.now() - SLEEP_FADE_MS
+    if (untilFade <= 0) startFade()
+    else fadeTimer = window.setTimeout(startFade, untilFade)
     const timer = window.setTimeout(fire, Math.max(0, endsAt - Date.now()))
     document.addEventListener('visibilitychange', onVisible)
     return () => {
+      window.clearTimeout(fadeTimer)
       window.clearTimeout(timer)
       document.removeEventListener('visibilitychange', onVisible)
+      // Timer diganti/dibatalkan di tengah fade: volume kembali penuh. (Setelah `fire`, jeda sudah mengembalikannya.)
+      cancelFadeRef.current()
     }
   }, [endsAt])
 
