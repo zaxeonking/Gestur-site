@@ -1,14 +1,16 @@
 import { useEffect, useRef } from 'react'
 import { usePlaybackTime, usePlayerActions, useAudioPlayer } from '../../hooks/useAudioPlayer'
+import { composeNotificationCover } from '../../utils/notificationCover'
+import { fallbackCover } from '../../utils/fallbackCover'
 
-/** Ikon app (PNG dari favicon) sebagai sampul di notifikasi / layar kunci: sampul lagu sengaja tidak dipakai. */
+/** Ikon app (PNG dari favicon): sampul sementara selagi sampul lagu + badge logo dibuat, dan cadangan jika gagal. */
 const ARTWORK_SIZES = [192, 512] as const
 /** Loncat maju/mundur dari tombol notifikasi (detik). */
 const SKIP_S = 10
 /** Selisih (detik) antara posisi yang diperkirakan sistem dan posisi sebenarnya sebelum dilaporkan ulang. */
 const DRIFT_S = 1.5
 
-function artwork(): MediaImage[] {
+function fallbackArtwork(): MediaImage[] {
   return ARTWORK_SIZES.map((size) => ({
     src: new URL(`icons/icon-${size}.png`, document.baseURI).href,
     sizes: `${size}x${size}`,
@@ -26,7 +28,7 @@ function setHandler(action: MediaSessionAction, handler: MediaSessionActionHandl
 
 /**
  * Menyambungkan pemutar ke Media Session: notifikasi media dan layar kunci menampilkan JUDUL LAGU di baris
- * atas (artis di bawahnya) dengan ikon app sebagai sampul, bukan nama situs. Tombol play/jeda, sebelumnya,
+ * atas (artis di bawahnya) dengan sampul lagu + lingkaran kecil logo MusicVerse di pojok kanan bawah. Tombol play/jeda, sebelumnya,
  * berikutnya, dan bilah posisi di notifikasi mengendalikan pemutar. Tidak merender apa pun.
  */
 export default function MediaSessionSync() {
@@ -45,16 +47,46 @@ export default function MediaSessionSync() {
   const title = currentTrack?.title ?? ''
   const artists = currentTrack?.artists ?? ''
   const album = currentTrack?.album ?? ''
+  const coverUrl = currentTrack?.cover || undefined
 
-  // Judul lagu di atas, artis di bawahnya.
+  // Judul lagu di atas, artis di bawahnya. Sampul: ikon app dulu, lalu diganti sampul lagu + badge logo.
   useEffect(() => {
     if (!supported) return
     if (trackId === null) {
       navigator.mediaSession.metadata = null
       return
     }
-    navigator.mediaSession.metadata = new MediaMetadata({ title, artist: artists, album, artwork: artwork() })
-  }, [supported, trackId, title, artists, album])
+    navigator.mediaSession.metadata = new MediaMetadata({ title, artist: artists, album, artwork: fallbackArtwork() })
+
+    let cancelled = false
+    let blobUrl: string | null = null
+    composeNotificationCover(coverUrl, fallbackCover(`${title}${album}`))
+      .then((url) => {
+        if (!url) return
+        if (cancelled) {
+          URL.revokeObjectURL(url)
+          return
+        }
+        blobUrl = url
+        navigator.mediaSession.metadata = new MediaMetadata({
+          title,
+          artist: artists,
+          album,
+          artwork: [{ src: url, sizes: '512x512', type: 'image/png' }],
+        })
+      })
+      .catch(() => {
+        // Tetap pakai ikon app.
+      })
+    return () => {
+      cancelled = true
+      // Blob dilepas belakangan: notifikasi mungkin masih memuatnya sesaat setelah metadata berganti.
+      if (blobUrl) {
+        const stale = blobUrl
+        setTimeout(() => URL.revokeObjectURL(stale), 10000)
+      }
+    }
+  }, [supported, trackId, title, artists, album, coverUrl])
 
   useEffect(() => {
     if (!supported) return

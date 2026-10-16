@@ -28,7 +28,7 @@ interface TrackRowProps {
   activity?: RowActivity
   onSelect: (id: string) => void
   onPlay: PlayTrackHandler
-  /** Baris ini hasil pencarian (kata kunci terisi di halaman Cari): menu lagunya boleh memasukkan lagu ke antrean mana pun. */
+  /** Baris ini lagu satuan di halaman Cari: menu lagunya boleh memasukkan lagu ke antrean mana pun (bukan dari playlist). */
   fromSearch?: boolean
 }
 

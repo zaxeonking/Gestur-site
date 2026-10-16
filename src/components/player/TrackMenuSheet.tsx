@@ -33,7 +33,7 @@ interface TrackMenuSheetProps {
 /**
  * Menu opsi untuk satu lagu dari daftar mana pun (playlist, Cari, riwayat), muncul saat baris
  * ditahan lama atau diklik kanan. Antrean tidak dicampur: lagu di luar antrean yang sedang berjalan
- * hanya bisa dimasukkan ke antrean jika dibuka dari hasil pencarian (`fromSearch`).
+ * hanya bisa dimasukkan ke antrean jika dibuka dari lagu satuan di halaman Cari (`fromSearch`), bukan dari playlist.
  * Mobile: bottom sheet. Desktop: kartu di tengah bawah.
  */
 export default function TrackMenuSheet({ track, fromSearch, onClose, onToast }: TrackMenuSheetProps) {
@@ -56,7 +56,7 @@ export default function TrackMenuSheet({ track, fromSearch, onClose, onToast }: 
   const inQueue = upcomingPosition !== -1
   const belongsToQueue = useMemo(() => player.queue.some((item) => item.id === track.id), [player.queue, track.id])
   // Tanpa antrean, opsi antrean sekadar memutar lagu ini. Dengan antrean, hanya lagu yang sudah ada di
-  // dalamnya atau hasil pencarian yang boleh ditambahkan/diatur.
+  // dalamnya atau lagu satuan dari halaman Cari yang boleh ditambahkan/diatur.
   const canQueue = !hasQueue || fromSearch || belongsToQueue
 
   // Fokus masuk ke menu, dan kembali ke baris asal saat menu ditutup.

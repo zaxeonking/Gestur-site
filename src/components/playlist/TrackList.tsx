@@ -27,8 +27,9 @@ interface TrackListProps {
   /** Mengganti empty state bawaan saat `tracks` kosong. */
   emptyState?: ReactNode
   /**
-   * Daftar ini halaman Cari. Saat kata kunci terisi, lagu hasilnya boleh dicampurkan ke antrean lewat
-   * menu lagu. Tanpa prop ini (mis. playlist) antrean tidak dicampur dengan lagu dari luar.
+   * Daftar ini halaman Cari. Lagu satuan di sini (dengan atau tanpa kata kunci) boleh dimasukkan ke antrean
+   * lewat menu lagu, meski berasal dari luar antrean yang sedang berjalan. Tanpa prop ini (mis. tampilan
+   * playlist) antrean tidak dicampur dengan lagu dari luar.
    */
   searchable?: boolean
 }
@@ -158,7 +159,7 @@ export default function TrackList({
                 activity={track.id === playingTrackId ? playbackActivity : 'none'}
                 onSelect={setSelectedId}
                 onPlay={handlePlay}
-                fromSearch={searchable && isFiltering}
+                fromSearch={searchable}
               />
             ))}
           </ul>

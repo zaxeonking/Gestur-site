@@ -147,7 +147,7 @@ export interface AudioPlayerActions {
   removeUpcoming: (position: number) => void
   /**
    * Menambahkan lagu ke akhir daftar "Berikutnya". Lagu di luar antrean aktif hanya diterima jika
-   * `fromSearch` (hasil pencarian); selain itu hasilnya 'blocked'.
+   * `fromSearch` (lagu satuan dari halaman Cari); selain itu hasilnya 'blocked'.
    */
   addToQueue: (track: PlaylistTrack, options?: QueueAddOptions) => QueueAddResult
   /** Menaruh lagu tepat setelah lagu yang sedang diputar. Aturan sumbernya sama dengan `addToQueue`. */
