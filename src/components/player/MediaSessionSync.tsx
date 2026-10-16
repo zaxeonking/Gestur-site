@@ -1,0 +1,119 @@
+import { useEffect, useRef } from 'react'
+import { usePlaybackTime, usePlayerActions, useAudioPlayer } from '../../hooks/useAudioPlayer'
+
+/** Ikon app (PNG dari favicon) sebagai sampul di notifikasi / layar kunci: sampul lagu sengaja tidak dipakai. */
+const ARTWORK_SIZES = [192, 512] as const
+/** Loncat maju/mundur dari tombol notifikasi (detik). */
+const SKIP_S = 10
+/** Selisih (detik) antara posisi yang diperkirakan sistem dan posisi sebenarnya sebelum dilaporkan ulang. */
+const DRIFT_S = 1.5
+
+function artwork(): MediaImage[] {
+  return ARTWORK_SIZES.map((size) => ({
+    src: new URL(`icons/icon-${size}.png`, document.baseURI).href,
+    sizes: `${size}x${size}`,
+    type: 'image/png',
+  }))
+}
+
+function setHandler(action: MediaSessionAction, handler: MediaSessionActionHandler | null) {
+  try {
+    navigator.mediaSession.setActionHandler(action, handler)
+  } catch {
+    // Aksi ini tidak didukung browser: abaikan.
+  }
+}
+
+/**
+ * Menyambungkan pemutar ke Media Session: notifikasi media dan layar kunci menampilkan JUDUL LAGU di baris
+ * atas (artis di bawahnya) dengan ikon app sebagai sampul, bukan nama situs. Tombol play/jeda, sebelumnya,
+ * berikutnya, dan bilah posisi di notifikasi mengendalikan pemutar. Tidak merender apa pun.
+ */
+export default function MediaSessionSync() {
+  const { status, currentTrack, hasNext, hasPrevious } = useAudioPlayer()
+  const actions = usePlayerActions()
+  const { currentTime, duration, seekable } = usePlaybackTime()
+  const supported = typeof navigator !== 'undefined' && 'mediaSession' in navigator
+
+  // Salinan terbaru untuk handler yang didaftarkan sekali.
+  const latest = useRef({ status, actions, currentTime, duration })
+  useEffect(() => {
+    latest.current = { status, actions, currentTime, duration }
+  })
+
+  const trackId = currentTrack?.id ?? null
+  const title = currentTrack?.title ?? ''
+  const artists = currentTrack?.artists ?? ''
+  const album = currentTrack?.album ?? ''
+
+  // Judul lagu di atas, artis di bawahnya.
+  useEffect(() => {
+    if (!supported) return
+    if (trackId === null) {
+      navigator.mediaSession.metadata = null
+      return
+    }
+    navigator.mediaSession.metadata = new MediaMetadata({ title, artist: artists, album, artwork: artwork() })
+  }, [supported, trackId, title, artists, album])
+
+  useEffect(() => {
+    if (!supported) return
+    if (trackId === null) navigator.mediaSession.playbackState = 'none'
+    else {
+      const playing = status === 'playing' || status === 'buffering' || status === 'loading' || status === 'resolving'
+      navigator.mediaSession.playbackState = playing ? 'playing' : 'paused'
+    }
+  }, [supported, trackId, status])
+
+  // Tombol notifikasi. Aksi yang tidak mungkin (tidak ada lagu berikutnya, audio tidak bisa di-seek) dilepas
+  // supaya tombolnya tidak tampil.
+  useEffect(() => {
+    if (!supported) return
+    const call = latest
+    setHandler('play', () => {
+      const { status: s, actions: a } = call.current
+      if (s === 'paused' || s === 'ended' || s === 'error') a.togglePlayPause()
+    })
+    setHandler('pause', () => call.current.actions.pause())
+    setHandler('stop', () => call.current.actions.pause())
+    setHandler('previoustrack', hasPrevious ? () => call.current.actions.playPrevious() : null)
+    setHandler('nexttrack', hasNext ? () => call.current.actions.playNext() : null)
+    setHandler('seekto', seekable ? (d) => d.seekTime !== undefined && call.current.actions.seekTo(d.seekTime) : null)
+    setHandler('seekbackward', seekable ? () => call.current.actions.seekTo(Math.max(0, call.current.currentTime - SKIP_S)) : null)
+    setHandler('seekforward', seekable ? () => call.current.actions.seekTo(call.current.currentTime + SKIP_S) : null)
+    return () => {
+      for (const action of ['play', 'pause', 'stop', 'previoustrack', 'nexttrack', 'seekto', 'seekbackward', 'seekforward'] as const) {
+        setHandler(action, null)
+      }
+    }
+  }, [supported, hasNext, hasPrevious, seekable])
+
+  // Posisi: dilaporkan saat berubah berarti (seek, lagu baru, durasi baru); di antaranya sistem memperkirakan sendiri.
+  const reported = useRef<{ position: number; at: number; duration: number; playing: boolean } | null>(null)
+  useEffect(() => {
+    if (!supported || trackId === null || duration === null || !(duration > 0) || !Number.isFinite(duration)) return
+    const playing = status === 'playing'
+    const now = performance.now()
+    const last = reported.current
+    const expected = last ? last.position + (last.playing ? (now - last.at) / 1000 : 0) : null
+    const stale =
+      last === null ||
+      last.duration !== duration ||
+      last.playing !== playing ||
+      expected === null ||
+      Math.abs(expected - currentTime) > DRIFT_S
+    if (!stale) return
+    try {
+      navigator.mediaSession.setPositionState({
+        duration,
+        position: Math.min(Math.max(0, currentTime), duration),
+        playbackRate: 1,
+      })
+      reported.current = { position: currentTime, at: now, duration, playing }
+    } catch {
+      // Nilai tidak valid untuk browser ini: abaikan.
+    }
+  }, [supported, trackId, status, currentTime, duration])
+
+  return null
+}

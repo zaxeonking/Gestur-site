@@ -276,3 +276,10 @@ Hasil cari judul dan tautan lagu (`source: 'search'`) adalah **lagu satuan**, bu
 tombol hati di pemutar dihapus, tombol "Simpan ke Koleksi" disembunyikan untuk lagu satuan, dan `upsertSavedPlaylist` menolak (`reason: 'single'`).
 Entri lagu satuan lama di penyimpanan dibuang diam-diam saat dibaca. Untuk menyimpan lagu satuan, pakai **Simpan ke playlist saya**.
 Riwayat "Baru diputar" tidak terpengaruh (itu riwayat, bukan Koleksi).
+
+## Notifikasi media (Media Session)
+
+`components/player/MediaSessionSync.tsx` mengisi Media Session API: notifikasi media dan layar kunci di Chrome menampilkan **judul lagu** di baris atas
+(artis di bawahnya) dengan **ikon app** sebagai sampul (`public/icons/icon-192.png` dan `icon-512.png`, dirender dari `favicon.svg`; sampul lagu sengaja tidak dipakai).
+Tombol play/jeda, sebelumnya, berikutnya, dan bilah posisi di notifikasi mengendalikan pemutar. Catatan: ini bekerja di Chrome/PWA. Di APK Capacitor,
+Android WebView tidak memunculkan notifikasi media sistem; itu butuh plugin foreground service terpisah.

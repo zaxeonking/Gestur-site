@@ -1,5 +1,6 @@
 import { createBrowserRouter, RouterProvider } from 'react-router-dom'
 import AppShell from './components/layout/AppShell'
+import MediaSessionSync from './components/player/MediaSessionSync'
 import { AudioPlayerProvider } from './context/AudioPlayerContext'
 import { LibraryProvider } from './context/LibraryContext'
 import { MyPlaylistsProvider } from './context/MyPlaylistsContext'
@@ -37,6 +38,7 @@ export default function App() {
           <MyPlaylistsProvider>
             <TrackMenuProvider>
               <SleepTimerProvider>
+                <MediaSessionSync />
                 <RouterProvider router={router} />
               </SleepTimerProvider>
             </TrackMenuProvider>
