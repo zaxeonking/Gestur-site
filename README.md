@@ -62,7 +62,7 @@ Tombol X di form menghapus playlist (termasuk cache).
 
 Urutan sumber audio saat memutar lagu:
 1. API download `app.kyzznekoo.my.id` (`/api/download/spotify?url=`) → `data.url` (audio).
-2. Cadangan: `GET {BASE}/api/spotify?url={ENCODED_URL_LAGU}` (NexaDev) → `data.url` (audio penuh; `data.preview` = cuplikan 30 dtk, hanya dipakai bila `url` kosong).
+2. Cadangan: `GET {BASE}/api/spotify?url={ENCODED_URL_LAGU}` (NexaDev) → `data.url` (audio penuh; `data.preview` = cuplikan 30 dtk, TIDAK PERNAH dipakai; `url` kosong = error "tidak ada audio").
 3. Cadangan terakhir (kurang akurat): `GET {BASE}/api/spotifyplay?q={encodeURIComponent(judul)}` → `data.mp3_url`.
 
 - **Satu engine.** `services/audioEngine.ts` memegang satu `HTMLAudioElement`. `AudioPlayerProvider`

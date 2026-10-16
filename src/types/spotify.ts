@@ -92,8 +92,6 @@ export interface PlaybackInfo {
   spotifyUrl: string
   /** URL audio yang diputar. Selalu diambil ulang untuk setiap permintaan play. */
   audioUrl: string
-  /** Cuplikan ~30 detik (hanya dari NexaDev /api/spotify; opsional). */
-  previewUrl?: string
   /** Sumber yang dipilih (kyzz, nexa-tautan, nexa-judul), untuk diagnosis. */
   source?: string
 }

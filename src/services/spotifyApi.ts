@@ -488,8 +488,8 @@ export function buildTrackEndpoint(trackUrl: string): string {
 
 /**
  * Memeriksa respons /api/spotify. `data.url` = audio penuh (URL bertoken, bisa kedaluwarsa);
- * `data.preview` = cuplikan ~30 detik (bisa kosong). Jika `url` kosong, `preview` dipakai sebagai audio.
- * Melempar SpotifyApiError jika tidak ada satu pun URL http(s) yang valid.
+ * `data.preview` (cuplikan ~30 detik) SENGAJA diabaikan: hanya audio penuh yang boleh diputar.
+ * Melempar SpotifyApiError jika `url` kosong atau bukan URL http(s) yang valid.
  */
 export function parseTrackResponse(body: unknown, trackUrl: string): PlaybackInfo {
   if (!isRecord(body)) {
@@ -507,15 +507,11 @@ export function parseTrackResponse(body: unknown, trackUrl: string): PlaybackInf
   }
 
   const fullUrl = readString(data.url).trim()
-  const previewUrl = readString(data.preview).trim()
-  const fullOk = fullUrl !== '' && isSafeHttpUrl(fullUrl)
-  const previewOk = previewUrl !== '' && isSafeHttpUrl(previewUrl)
-
-  if (!fullOk && !previewOk) {
-    throw new SpotifyApiError(
-      fullUrl || previewUrl ? 'invalid_response' : 'no_audio',
-      fullUrl || previewUrl ? 'URL audio dari server tidak valid.' : 'Server tidak menyediakan audio untuk lagu ini.',
-    )
+  if (fullUrl === '') {
+    throw new SpotifyApiError('no_audio', 'Server tidak menyediakan audio untuk lagu ini.')
+  }
+  if (!isSafeHttpUrl(fullUrl)) {
+    throw new SpotifyApiError('invalid_response', 'URL audio dari server tidak valid.')
   }
 
   // Judul NexaDev berformat "Judul - Artis"; pakai apa adanya (UI sudah punya judul dari playlist).
@@ -526,8 +522,7 @@ export function parseTrackResponse(body: unknown, trackUrl: string): PlaybackInf
     duration: readString(data.duration),
     cover: readString(data.thumbnail),
     spotifyUrl: trackUrl,
-    audioUrl: fullOk ? fullUrl : previewUrl,
-    previewUrl: previewOk ? previewUrl : undefined,
+    audioUrl: fullUrl,
   }
 }
 
