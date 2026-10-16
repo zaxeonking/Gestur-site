@@ -92,6 +92,6 @@ export interface PlaybackInfo {
   spotifyUrl: string
   /** URL audio yang diputar. Selalu diambil ulang untuk setiap permintaan play. */
   audioUrl: string
-  /** Sumber yang dipilih (kyzz, nexa-tautan, nexa-judul), untuk diagnosis. */
+  /** Sumber yang dipilih (kyzz, nexa-tautan, judul->tautan), untuk diagnosis. */
   source?: string
 }

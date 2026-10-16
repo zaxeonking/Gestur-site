@@ -587,8 +587,24 @@ export async function searchTrackByTitle(
   query: string,
   options: FetchPlaylistOptions = {},
 ): Promise<PlaybackInfo> {
-  const info = await requestPlayback(query, options)
-  putHandoff(handoffKey(info.title || query, info.spotifyUrl), info)
+  // Endpoint judul (spotifyplay) hanya dipakai untuk menemukan lagu + tautannya. `mp3_url`-nya
+  // adalah cuplikan ~30 detik, jadi TIDAK dipakai: audio selalu diambil ulang lewat tautan lagu
+  // (API download kyzz -> NexaDev /api/spotify), yaitu audio penuh.
+  const found = await requestPlayback(query, options)
+  const link = extractSpotifyTrackLink(found.spotifyUrl ?? '')
+  if (!link) throw new SpotifyApiError('no_audio', 'Tautan lagu tidak ditemukan, audio penuh tidak bisa diambil.')
+  const full = await requestByLink(link, options)
+  const info: PlaybackInfo = {
+    ...full,
+    title: full.title || found.title,
+    artist: full.artist || found.artist,
+    album: full.album || found.album,
+    duration: full.duration || found.duration,
+    year: found.year,
+    cover: full.cover || found.cover,
+    spotifyUrl: link,
+  }
+  putHandoff(handoffKey(info.title || query, link), info)
   return info
 }
 
@@ -639,7 +655,20 @@ export async function fetchPlaybackInfo(
     sources.push({ name: 'kyzz', viaLink: true, run: (o) => requestDownload(link, o) })
     sources.push({ name: 'nexa-tautan', viaLink: true, run: (o) => requestTrack(link, o) })
   }
-  sources.push({ name: 'nexa-judul', viaLink: false, run: (o) => requestPlayback(titleQuery, o) })
+  if (!link) {
+    // Tanpa tautan: cari lewat judul hanya untuk menemukan tautan lagu, lalu ambil audio penuhnya.
+    // `mp3_url` dari endpoint judul adalah cuplikan ~30 detik, jadi tidak pernah dipakai.
+    sources.push({
+      name: 'judul->tautan',
+      viaLink: false,
+      run: async (o) => {
+        const found = await requestPlayback(titleQuery, o)
+        const foundLink = extractSpotifyTrackLink(found.spotifyUrl ?? '')
+        if (!foundLink) throw new SpotifyApiError('no_audio', 'Tautan lagu tidak ditemukan.')
+        return requestByLink(foundLink, o)
+      },
+    })
+  }
 
   const wanted = { title: track.title, artists: track.artists ?? '', duration: track.duration ?? '', url: track.url }
   const inner = new AbortController()

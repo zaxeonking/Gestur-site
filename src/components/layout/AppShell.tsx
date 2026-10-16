@@ -47,7 +47,7 @@ export default function AppShell() {
         >
           {/* key = pathname: transisi ringan hanya saat berpindah halaman. */}
           <div key={pathname} className={`mx-auto w-full max-w-6xl animate-page-in px-4 pt-2 lg:px-8 lg:pt-8 ${
-              playerActive ? 'pb-36 lg:pb-40' : 'pb-6 lg:pb-10'
+              playerActive ? 'pb-40 lg:pb-44' : 'pb-6 lg:pb-10'
             }`}>
             <Outlet />
           </div>
