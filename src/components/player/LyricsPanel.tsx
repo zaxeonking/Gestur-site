@@ -14,10 +14,26 @@ function Message({ children }: { children: ReactNode }) {
   return <div className="flex h-full flex-col items-center justify-center gap-3 px-4 text-center text-sm text-ink-muted">{children}</div>
 }
 
+/** Pudar di tepi atas/bawah kotak supaya baris seolah muncul dan hilang saat bergulir naik. */
+const FADE_MASK = {
+  maskImage: 'linear-gradient(to bottom, transparent, #000 22%, #000 78%, transparent)',
+  WebkitMaskImage: 'linear-gradient(to bottom, transparent, #000 22%, #000 78%, transparent)',
+} as const
+
+/** Layar memutakhirkan waktu ±4x/detik; baris disorot sedikit lebih awal agar terasa pas dengan suara. */
+const LEAD_S = 0.3
+/** Selisih durasi (detik) lirik vs audio: sampai batas ini waktu lirik dipakai apa adanya. */
+const TIMING_EXACT_S = 15
+/** Di luar batas di atas, waktu lirik diregangkan sesuai rasio durasi hanya jika rasionya masuk akal (versi cepat/lambat/terpotong). */
+const SCALE_MIN = 0.8
+const SCALE_MAX = 1.25
+
 /**
- * Lirik di pemutar penuh. Lirik bertanda waktu (synced): baris yang sedang dinyanyikan disorot dan
- * digulirkan ke tengah; ketuk baris untuk loncat ke bagian itu (jika audio bisa di-seek).
- * Lirik tanpa waktu tampil sebagai teks biasa.
+ * Lirik di pemutar penuh. SELALU bergerak mengikuti lagu:
+ *  - bertanda waktu + durasi cocok  → sorotan memakai waktu aslinya,
+ *  - bertanda waktu + durasi agak beda → waktu diregangkan sesuai rasio durasi,
+ *  - tanpa waktu / waktu tak bisa dipercaya → sorotan PERKIRAAN menurut progres lagu.
+ * Ketuk baris (jika audio bisa di-seek) untuk loncat ke bagian itu, hanya pada mode berwaktu.
  */
 export default function LyricsPanel({ state, onRetry }: LyricsPanelProps) {
   if (state.status === 'idle' || state.status === 'loading') {
@@ -41,37 +57,101 @@ export default function LyricsPanel({ state, onRetry }: LyricsPanelProps) {
   const { result } = state
   if (result.kind === 'none') return <Message>Lirik untuk lagu ini tidak ditemukan.</Message>
   if (result.kind === 'instrumental') return <Message>Lagu ini instrumental, tidak ada lirik.</Message>
-  if (result.kind === 'plain') {
-    return (
-      <div className="h-full overflow-y-auto px-2 py-4 text-center">
-        {result.lines.map((line, i) => (
-          <p key={i} className="min-h-[1.5em] text-lg font-medium leading-relaxed text-ink">
-            {line}
-          </p>
-        ))}
-        <p className="pt-6 text-[11px] text-ink-faint">Lirik dari LRCLIB</p>
-      </div>
-    )
-  }
+  if (result.kind === 'plain') return <PlainLyrics lines={result.lines} />
   return <SyncedLyrics result={result} />
 }
 
-/** Selisih durasi (detik) yang masih dianggap versi audio yang sama, dan batas di mana waktu lirik tidak bisa dipercaya. */
-const TIMING_UNUSABLE_S = 15
-/** Pudar di tepi atas/bawah kotak supaya baris seolah muncul dan hilang saat bergulir naik. */
-const FADE_MASK = {
-  maskImage: 'linear-gradient(to bottom, transparent, #000 22%, #000 78%, transparent)',
-  WebkitMaskImage: 'linear-gradient(to bottom, transparent, #000 22%, #000 78%, transparent)',
-} as const
+interface Item {
+  text: string
+  /** Detik pada versi lirik; ada hanya untuk mode berwaktu. */
+  time?: number
+}
 
-/** Layar memutakhirkan waktu ±4x/detik; baris disorot sedikit lebih awal agar terasa pas dengan suara. */
-const LEAD_S = 0.3
+/** Daftar baris yang menggulir baris aktif ke tengah (selalu, setiap baris aktif berganti). */
+function LineList({ items, active, onSeek, note }: { items: Item[]; active: number; onSeek?: (time: number) => void; note?: string }) {
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container || active < 0) return
+    const node = container.querySelector<HTMLElement>(`[data-line="${active}"]`)
+    if (!node) return
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    container.scrollTo({
+      top: node.offsetTop - container.clientHeight / 2 + node.clientHeight / 2,
+      behavior: reduce ? 'auto' : 'smooth',
+    })
+  }, [active, items])
+
+  return (
+    <div className="flex h-full flex-col">
+      {note && (
+        <p role="status" className="shrink-0 px-4 pt-2 text-center text-[11px] text-ink-faint">
+          {note}
+        </p>
+      )}
+      <div
+        ref={containerRef}
+        style={FADE_MASK}
+        className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-[18dvh] text-center [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      >
+        {items.map((item, i) => {
+          const isActive = i === active
+          const className = `block w-full origin-center rounded-md px-1 py-1.5 text-xl font-bold leading-snug transition-all duration-300 ${
+            isActive ? 'scale-105 text-ink' : i < active ? 'text-white/30' : 'text-white/50'
+          }`
+          const text = item.text || '♪'
+          return onSeek && item.time !== undefined ? (
+            <button
+              key={i}
+              type="button"
+              data-line={i}
+              aria-current={isActive ? 'true' : undefined}
+              onClick={() => onSeek(item.time as number)}
+              className={`${className} focus-ring`}
+            >
+              {text}
+            </button>
+          ) : (
+            <p key={i} data-line={i} aria-current={isActive ? 'true' : undefined} className={className}>
+              {text}
+            </p>
+          )
+        })}
+        <p className="pt-6 text-[11px] text-ink-faint">Lirik dari LRCLIB / NetEase</p>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Baris aktif menurut PROGRES lagu (tanpa waktu per baris): baris berisi dibagi rata sepanjang lagu,
+ * dengan sedikit jeda di awal (intro) dan akhir (outro). Hanya perkiraan, tetapi tetap bergerak.
+ */
+function estimateActive(items: Item[], currentTime: number, duration: number | null): number {
+  if (!duration || !Number.isFinite(duration) || duration <= 0) return -1
+  const filled = items.map((item, i) => (item.text.trim() ? i : -1)).filter((i) => i >= 0)
+  if (filled.length === 0) return -1
+  const progress = Math.min(1, Math.max(0, (currentTime / duration - 0.06) / 0.86))
+  return filled[Math.min(filled.length - 1, Math.floor(progress * filled.length))]
+}
+
+const ESTIMATE_NOTE = 'Waktu lirik tidak tersedia, sorotan hanya perkiraan.'
+
+function PlainLyrics({ lines }: { lines: string[] }) {
+  const { currentTime, duration } = usePlaybackTime()
+  const items = useMemo<Item[]>(() => lines.map((text) => ({ text })), [lines])
+  const active = estimateActive(items, currentTime, duration)
+  return <LineList items={items} active={active} note={ESTIMATE_NOTE} />
+}
 
 function SyncedLyrics({ result }: { result: Extract<LyricsResult, { kind: 'synced' }> }) {
   // `result` stabil selama lagu sama, jadi `primary` tidak berubah identitas di setiap render.
   const primary = useMemo<SyncedVersion>(() => ({ lines: result.lines, duration: result.duration }), [result])
   const alternatives = result.alternatives
   const { currentTime, seekable, duration: audioDuration } = usePlaybackTime()
+  const { seekTo } = useAudioPlayer()
+
   // Pilih versi yang durasinya paling dekat dengan audio SATU KALI saja (saat durasi audio pertama diketahui),
   // lalu kunci. Berganti versi di tengah lagu membuat lirik loncat-loncat.
   const [picked, setPicked] = useState<SyncedVersion | null>(null)
@@ -85,74 +165,31 @@ function SyncedLyrics({ result }: { result: Extract<LyricsResult, { kind: 'synce
     setPicked(gap(best) <= gap(primary) - 2 ? best : primary)
   }, [picked, primary, alternatives, audioDuration])
   const { lines, duration: lyricsDuration } = picked ?? primary
-  const { seekTo } = useAudioPlayer()
-  const containerRef = useRef<HTMLDivElement>(null)
-  const diff = lyricsDuration !== null && audioDuration !== null ? Math.abs(lyricsDuration - audioDuration) : 0
-  const timingUnusable = diff > TIMING_UNUSABLE_S
-  const active = useMemo(() => findActiveLine(lines, currentTime + LEAD_S), [lines, currentTime])
 
-  useEffect(() => {
-    const container = containerRef.current
-    if (!container || active < 0 || timingUnusable) return
-    const node = container.querySelector<HTMLElement>(`[data-line="${active}"]`)
-    if (!node) return
-    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    container.scrollTo({
-      top: node.offsetTop - container.clientHeight / 2 + node.clientHeight / 2,
-      behavior: reduce ? 'auto' : 'smooth',
-    })
-  }, [active, timingUnusable])
+  const items = useMemo<Item[]>(() => lines.map((line) => ({ text: line.text, time: line.time })), [lines])
 
-  // Versi audio terlalu beda dari versi lirik: waktunya pasti meleset, jadi tampilkan teks biasa.
-  if (timingUnusable) {
-    return (
-      <div className="h-full overflow-y-auto px-2 py-4 text-center">
-        <p role="status" className="pb-3 text-xs text-ink-faint">
-          Durasi audio ({Math.round(audioDuration ?? 0)} dtk) jauh beda dari versi lirik ({Math.round(lyricsDuration ?? 0)} dtk),
-          jadi lirik ditampilkan tanpa sorotan waktu.
-        </p>
-        {lines.map((line, i) => (
-          <p key={i} className="min-h-[1.5em] text-lg font-medium leading-relaxed text-ink">
-            {line.text}
-          </p>
-        ))}
-        <p className="pt-6 text-[11px] text-ink-faint">Lirik dari LRCLIB</p>
-      </div>
-    )
-  }
+  // Mode waktu: 'exact' | 'scaled' | 'estimated'.
+  const known = audioDuration !== null && lyricsDuration !== null && Number.isFinite(audioDuration) && audioDuration > 0
+  const diff = known ? Math.abs(lyricsDuration - audioDuration) : 0
+  const ratio = known ? audioDuration / lyricsDuration : 1
+  const mode: 'exact' | 'scaled' | 'estimated' = !known || diff <= TIMING_EXACT_S ? 'exact' : ratio >= SCALE_MIN && ratio <= SCALE_MAX ? 'scaled' : 'estimated'
+  // Pada mode 'scaled', waktu audio dikembalikan ke skala versi lirik sebelum dicari barisnya.
+  const lyricTime = mode === 'scaled' ? currentTime / ratio : currentTime
 
-  return (
-    <div className="flex h-full flex-col">
-      <div
-        ref={containerRef}
-        style={FADE_MASK}
-        className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-[18dvh] text-center [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-      >
-        {lines.map((line, i) => {
-          const isActive = i === active
-          const className = `block w-full origin-center rounded-md px-1 py-1.5 text-xl font-bold leading-snug transition-all duration-300 ${
-            isActive ? 'scale-105 text-ink' : i < active ? 'text-white/30' : 'text-white/50'
-          }`
-          const text = line.text || '♪'
-          return seekable ? (
-            <button
-              key={i}
-              type="button"
-              data-line={i}
-              aria-current={isActive ? 'true' : undefined}
-              onClick={() => seekTo(line.time)}
-              className={`${className} focus-ring`}
-            >
-              {text}
-            </button>
-          ) : (
-            <p key={i} data-line={i} aria-current={isActive ? 'true' : undefined} className={className}>
-              {text}
-            </p>
-          )
-        })}
-        <p className="pt-6 text-[11px] text-ink-faint">Lirik dari LRCLIB</p>
-      </div>
-    </div>
+  const active = useMemo(
+    () => (mode === 'estimated' ? estimateActive(items, currentTime, audioDuration) : findActiveLine(lines, lyricTime + LEAD_S)),
+    [mode, items, lines, currentTime, lyricTime, audioDuration],
   )
+
+  const note =
+    mode === 'estimated'
+      ? `Durasi audio (${Math.round(audioDuration ?? 0)} dtk) jauh beda dari versi lirik (${Math.round(lyricsDuration ?? 0)} dtk), sorotan hanya perkiraan.`
+      : mode === 'scaled'
+        ? 'Durasi audio agak beda dari versi lirik, waktu disesuaikan.'
+        : undefined
+
+  // Loncat ke baris hanya akurat pada mode 'exact'; pada 'scaled' waktu dikonversi balik.
+  const onSeek = seekable && mode !== 'estimated' ? (time: number) => seekTo(mode === 'scaled' ? time * ratio : time) : undefined
+
+  return <LineList items={items} active={active} onSeek={onSeek} note={note} />
 }
