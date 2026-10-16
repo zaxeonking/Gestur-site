@@ -1,10 +1,17 @@
+import { useLayoutEffect, useRef, useState, type PointerEvent } from 'react'
 import { useAudioPlayer } from '../../hooks/useAudioPlayer'
+import { useMiniPlayerMode } from '../../hooks/useMiniPlayerMode'
 import { useNowPlaying } from '../../hooks/useNowPlaying'
 import { STATUS_TEXT } from '../../utils/playerStatus'
 import CoverArt from '../ui/CoverArt'
 import { PlayerError, QueueButton, SpotifyLink, TransportControls } from './PlayerControls'
 import LyricLine from './LyricLine'
+import MiniBubble from './MiniBubble'
 import SeekBar from './SeekBar'
+
+/** Jarak seret ke bawah (px) yang cukup untuk memperkecil, dan awal gerakan dianggap seretan. */
+const SHRINK_DISTANCE = 70
+const DRAG_START_PX = 8
 
 /**
  * Mini player. Anak flex AppShell tepat di atas BottomNav (bukan position: fixed), jadi konten
@@ -14,6 +21,127 @@ import SeekBar from './SeekBar'
 export default function MiniPlayer({ onOpen, onOpenQueue }: { onOpen: () => void; onOpenQueue: () => void }) {
   const { status } = useAudioPlayer()
   const now = useNowPlaying()
+  const { collapsed, side, setCollapsed, setSide } = useMiniPlayerMode()
+  const dockRef = useRef<HTMLDivElement>(null)
+  const cardRef = useRef<HTMLDivElement>(null)
+  const [dockWidth, setDockWidth] = useState(0)
+  // Dari sisi mana kartu baru saja membesar (untuk animasi keluar dari gelembung).
+  const [growFrom, setGrowFrom] = useState<'left' | 'right' | null>(null)
+  const drag = useRef({ id: -1, x: 0, y: 0, active: false, crossed: false, lastY: 0, lastT: 0, velocity: 0 })
+  const swallowClick = useRef(false)
+  const collapseTimer = useRef(0)
+
+  useLayoutEffect(() => {
+    const el = dockRef.current
+    if (!el) return
+    const measure = () => setDockWidth(el.clientWidth)
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
+
+  useLayoutEffect(() => () => window.clearTimeout(collapseTimer.current), [])
+
+  /** Posisikan kartu mengikuti jari: turun + mengecil + memudar. dy<0 diberi hambatan karet. */
+  const applyDrag = (rawDy: number, animate: boolean) => {
+    const el = cardRef.current
+    if (!el) return
+    const dy = rawDy >= 0 ? rawDy : -Math.min(14, Math.sqrt(-rawDy) * 2)
+    const p = Math.min(Math.max(dy, 0) / (SHRINK_DISTANCE * 1.6), 1)
+    el.style.transition = animate ? 'transform 320ms cubic-bezier(0.34,1.56,0.64,1), opacity 200ms' : 'none'
+    el.style.transform = rawDy === 0 ? '' : `translate3d(0, ${dy}px, 0) scale(${1 - p * 0.14})`
+    el.style.opacity = rawDy === 0 ? '' : String(1 - p * 0.35)
+  }
+
+  const springBack = () => {
+    applyDrag(0, true)
+    window.setTimeout(() => {
+      if (cardRef.current) cardRef.current.style.transition = ''
+    }, 340)
+  }
+
+  /** Kartu "terbang" mengecil ke pojok tempat gelembung, lalu diganti gelembung. */
+  const shrink = () => {
+    const el = cardRef.current
+    if (!el) {
+      setCollapsed(true)
+      return
+    }
+    const travel = Math.max(0, el.clientWidth / 2 - 28) * (side === 'right' ? 1 : -1)
+    el.style.transition = 'transform 220ms cubic-bezier(0.5,0,0.75,0), opacity 200ms ease-in'
+    el.style.transform = `translate3d(${travel}px, 0, 0) scale(0.16)`
+    el.style.opacity = '0'
+    window.clearTimeout(collapseTimer.current)
+    collapseTimer.current = window.setTimeout(() => {
+      setGrowFrom(null)
+      setCollapsed(true)
+    }, 200)
+  }
+
+  const expand = () => {
+    setGrowFrom(side)
+    setCollapsed(false)
+  }
+
+  const onPointerDown = (event: PointerEvent<HTMLDivElement>) => {
+    if (event.pointerType === 'mouse' && event.button !== 0) return
+    // Seek bar punya geseran sendiri (horizontal): jangan dibajak.
+    if ((event.target as HTMLElement).closest('input[type="range"], [role="progressbar"]')) return
+    const d = drag.current
+    d.id = event.pointerId
+    d.x = event.clientX
+    d.y = event.clientY
+    d.active = false
+    d.crossed = false
+    d.lastY = event.clientY
+    d.lastT = event.timeStamp
+    d.velocity = 0
+  }
+
+  const onPointerMove = (event: PointerEvent<HTMLDivElement>) => {
+    const d = drag.current
+    if (event.pointerId !== d.id) return
+    const dx = event.clientX - d.x
+    const dy = event.clientY - d.y
+    if (!d.active) {
+      if (Math.abs(dx) < DRAG_START_PX && Math.abs(dy) < DRAG_START_PX) return
+      // Gerakan dominan horizontal bukan untuk kita.
+      if (Math.abs(dx) > Math.abs(dy)) {
+        d.id = -1
+        return
+      }
+      d.active = true
+      event.currentTarget.setPointerCapture(event.pointerId)
+    }
+    const dt = event.timeStamp - d.lastT
+    if (dt > 0) d.velocity = (event.clientY - d.lastY) / dt
+    d.lastY = event.clientY
+    d.lastT = event.timeStamp
+    // Getar kecil saat melewati titik "lepas sekarang = mengecil".
+    const crossed = dy > SHRINK_DISTANCE
+    if (crossed !== d.crossed) {
+      d.crossed = crossed
+      if (crossed) navigator.vibrate?.(10)
+    }
+    applyDrag(dy, false)
+  }
+
+  const endDrag = (event: PointerEvent<HTMLDivElement>, cancelled: boolean) => {
+    const d = drag.current
+    if (event.pointerId !== d.id) return
+    d.id = -1
+    if (!d.active) return
+    d.active = false
+    // Klik yang menyusul pelepasan jari setelah seretan tidak boleh menekan tombol di bawah jari.
+    swallowClick.current = true
+    window.setTimeout(() => {
+      swallowClick.current = false
+    }, 120)
+    const dy = event.clientY - d.y
+    if (!cancelled && (dy > SHRINK_DISTANCE || (d.velocity > 0.6 && dy > 24))) shrink()
+    else springBack()
+  }
 
   if (!now) return null
   const isError = status === 'error'
@@ -21,14 +149,47 @@ export default function MiniPlayer({ onOpen, onOpenQueue }: { onOpen: () => void
   // Saat bukan playing/paused, tampilkan status nyata menggantikan nama artis.
   const subtitle = status === 'resolving' || status === 'loading' || status === 'buffering' ? statusText : now.artists
 
+  const cardAnimation =
+    growFrom === 'right'
+      ? 'animate-grow-right motion-reduce:animate-none'
+      : growFrom === 'left'
+        ? 'animate-grow-left motion-reduce:animate-none'
+        : 'animate-player-up'
+
   return (
     <div className="pointer-events-none relative z-40 h-0 shrink-0">
-    <div className="absolute inset-x-0 bottom-0 mb-4 ml-[max(0.75rem,env(safe-area-inset-left))] mr-[max(0.75rem,env(safe-area-inset-right))] flex animate-player-up flex-col lg:mx-6 lg:mb-6">
+    <div ref={dockRef} className="absolute inset-x-0 bottom-0 mb-4 ml-[max(0.75rem,env(safe-area-inset-left))] mr-[max(0.75rem,env(safe-area-inset-right))] lg:mx-6 lg:mb-6">
+    {collapsed ? (
+      <MiniBubble now={now} side={side} width={dockWidth} onExpand={expand} onSideChange={setSide} />
+    ) : (
+    <div className={`flex origin-bottom flex-col ${cardAnimation}`}>
     <div
+      ref={cardRef}
       role="region"
       aria-label="Pemutar musik"
-      className="pointer-events-auto overflow-hidden rounded-3xl border border-white/10 bg-[#242424]/70 shadow-[0_8px_32px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.1)] backdrop-blur-3xl backdrop-saturate-150 [-webkit-backdrop-filter:blur(40px)_saturate(150%)]"
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={(e) => endDrag(e, false)}
+      onPointerCancel={(e) => endDrag(e, true)}
+      onClickCapture={(e) => {
+        if (swallowClick.current) {
+          swallowClick.current = false
+          e.preventDefault()
+          e.stopPropagation()
+        }
+      }}
+      className="pointer-events-auto relative origin-bottom touch-none overflow-hidden rounded-3xl border border-white/10 bg-[#242424]/70 shadow-[0_8px_32px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.1)] backdrop-blur-3xl backdrop-saturate-150 [-webkit-backdrop-filter:blur(40px)_saturate(150%)]"
     >
+      {/* Pegangan: seret kartu ke bawah untuk memperkecil jadi gelembung. Ketuk = cadangan untuk keyboard/pembaca layar. */}
+      <button
+        type="button"
+        onClick={shrink}
+        aria-label="Perkecil pemutar jadi gelembung"
+        title="Seret ke bawah untuk memperkecil"
+        className="absolute left-1/2 top-0 z-10 flex h-4 w-20 -translate-x-1/2 items-start justify-center pt-1 focus-ring"
+      >
+        <span aria-hidden="true" className="h-1 w-9 rounded-full bg-white/25" />
+      </button>
       {/* Lirik menyatu dengan kartu: satu kaca blur yang sama, hanya dipisah garis tipis. */}
       <div className="border-b border-white/10">
         <LyricLine />
@@ -74,6 +235,8 @@ export default function MiniPlayer({ onOpen, onOpenQueue }: { onOpen: () => void
         {statusText}
       </p>
     </div>
+    </div>
+    )}
     </div>
     </div>
   )

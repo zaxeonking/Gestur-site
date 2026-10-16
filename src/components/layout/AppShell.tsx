@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
 import { useAudioPlayer } from '../../hooks/useAudioPlayer'
+import { useMiniPlayerMode } from '../../hooks/useMiniPlayerMode'
 import PlayerDock from '../player/PlayerDock'
 import BottomNav from './BottomNav'
 import MobileHeader from './MobileHeader'
@@ -17,6 +18,7 @@ export default function AppShell() {
   const { pathname } = useLocation()
   const { status, currentTrack } = useAudioPlayer()
   const playerActive = status !== 'idle' && currentTrack !== null
+  const { collapsed } = useMiniPlayerMode()
   const mainRef = useRef<HTMLElement>(null)
 
   // Area scroll ada di <main>, bukan window: kembalikan ke atas saat pindah halaman.
@@ -47,7 +49,7 @@ export default function AppShell() {
         >
           {/* key = pathname: transisi ringan hanya saat berpindah halaman. */}
           <div key={pathname} className={`mx-auto w-full max-w-6xl animate-page-in px-4 pt-2 lg:px-8 lg:pt-8 ${
-              playerActive ? 'pb-52 lg:pb-56' : 'pb-6 lg:pb-10'
+              playerActive ? (collapsed ? 'pb-24 lg:pb-28' : 'pb-52 lg:pb-56') : 'pb-6 lg:pb-10'
             }`}>
             <Outlet />
           </div>
