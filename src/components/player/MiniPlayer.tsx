@@ -21,12 +21,13 @@ export default function MiniPlayer({ onOpen, onOpenQueue }: { onOpen: () => void
   const subtitle = status === 'resolving' || status === 'loading' || status === 'buffering' ? statusText : now.artists
 
   return (
+    <div className="pointer-events-none relative z-40 h-0 shrink-0">
     <div
       role="region"
       aria-label="Pemutar musik"
-      className="relative z-40 shrink-0 animate-player-up border-t border-line bg-card pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]"
+      className="pointer-events-auto absolute inset-x-0 bottom-0 mx-3 mb-2 animate-player-up overflow-hidden rounded-3xl border border-white/10 bg-white/[0.08] shadow-[0_8px_32px_rgba(0,0,0,0.45),inset_0_1px_0_rgba(255,255,255,0.12)] backdrop-blur-2xl backdrop-saturate-150 [-webkit-backdrop-filter:blur(24px)_saturate(150%)] ml-[max(0.75rem,env(safe-area-inset-left))] mr-[max(0.75rem,env(safe-area-inset-right))] lg:mx-6 lg:mb-4"
     >
-      <div className="mx-auto grid max-w-6xl grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 gap-y-0.5 px-3 pb-1.5 pt-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)_minmax(0,1fr)] lg:gap-x-6 lg:px-6 lg:py-2">
+      <div className="mx-auto grid max-w-6xl grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 gap-y-0.5 px-4 pb-2.5 pt-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)_minmax(0,1fr)] lg:gap-x-6 lg:px-6 lg:py-2">
         <button
           type="button"
           onClick={onOpen}
@@ -66,6 +67,7 @@ export default function MiniPlayer({ onOpen, onOpenQueue }: { onOpen: () => void
       <p className="sr-only" aria-live="polite">
         {statusText}
       </p>
+    </div>
     </div>
   )
 }

@@ -9,7 +9,7 @@ export default function BottomNav() {
   return (
     <nav
       aria-label="Navigasi utama"
-      className="relative z-30 shrink-0 border-t border-line bg-bg/95 pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] backdrop-blur lg:hidden"
+      className="relative z-30 shrink-0 border-t border-line bg-bg pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] backdrop-blur lg:hidden"
     >
       <ul className="mx-auto flex max-w-md">
         {navItems.map(({ to, label, icon: Icon }) => (

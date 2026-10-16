@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
+import { useAudioPlayer } from '../../hooks/useAudioPlayer'
 import PlayerDock from '../player/PlayerDock'
 import BottomNav from './BottomNav'
 import MobileHeader from './MobileHeader'
@@ -14,6 +15,8 @@ import Sidebar from './Sidebar'
  */
 export default function AppShell() {
   const { pathname } = useLocation()
+  const { status, currentTrack } = useAudioPlayer()
+  const playerActive = status !== 'idle' && currentTrack !== null
   const mainRef = useRef<HTMLElement>(null)
 
   // Area scroll ada di <main>, bukan window: kembalikan ke atas saat pindah halaman.
@@ -43,7 +46,9 @@ export default function AppShell() {
           className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] outline-none lg:pr-0"
         >
           {/* key = pathname: transisi ringan hanya saat berpindah halaman. */}
-          <div key={pathname} className="mx-auto w-full max-w-6xl animate-page-in px-4 pb-6 pt-2 lg:px-8 lg:pb-10 lg:pt-8">
+          <div key={pathname} className={`mx-auto w-full max-w-6xl animate-page-in px-4 pt-2 lg:px-8 lg:pt-8 ${
+              playerActive ? 'pb-36 lg:pb-40' : 'pb-6 lg:pb-10'
+            }`}>
             <Outlet />
           </div>
         </main>
