@@ -11,7 +11,6 @@ import CollectionButton from './CollectionButton'
 import { PlayerError, QueueButton, SpotifyLink, TransportControls } from './PlayerControls'
 import LyricsPanel from './LyricsPanel'
 import SeekBar from './SeekBar'
-import CrossfadeSheet, { CrossfadeButton } from './CrossfadeSheet'
 import SleepTimerSheet, { SleepTimerButton } from './SleepTimerSheet'
 
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])'
@@ -29,7 +28,6 @@ export default function FullPlayer({ onClose, onOpenQueue }: { onClose: () => vo
   // Tampilan tengah: sampul atau lirik. Lirik baru diminta ke server saat tampilannya dibuka.
   const [showLyrics, setShowLyrics] = useState(false)
   const [timerOpen, setTimerOpen] = useState(false)
-  const [crossfadeOpen, setCrossfadeOpen] = useState(false)
   // Geser di area sampul/lirik: sampul digeser ke atas atau samping -> lirik; di lirik, geser samping -> kembali ke sampul.
   const swipeStart = useRef<{ x: number; y: number } | null>(null)
   const onSwipeStart = (event: TouchEvent) => {
@@ -159,7 +157,7 @@ export default function FullPlayer({ onClose, onOpenQueue }: { onClose: () => vo
             <SpotifyLink url={now.spotifyUrl} variant="button" />
           </div>
 
-          <div className="flex flex-wrap items-center justify-center gap-3">
+          <div className="flex items-center justify-center gap-3">
             <button
               type="button"
               onClick={() => setShowLyrics((value) => !value)}
@@ -171,11 +169,9 @@ export default function FullPlayer({ onClose, onOpenQueue }: { onClose: () => vo
               <Mic2 className="h-4 w-4" aria-hidden="true" />
               Lirik
             </button>
-            <CrossfadeButton onClick={() => setCrossfadeOpen(true)} />
             <SleepTimerButton onClick={() => setTimerOpen(true)} />
           </div>
           {timerOpen && <SleepTimerSheet onClose={() => setTimerOpen(false)} />}
-          {crossfadeOpen && <CrossfadeSheet onClose={() => setCrossfadeOpen(false)} />}
 
           {notice && (
             <div role="alert" className="flex items-start gap-2 rounded-lg bg-card/80 px-3 py-2 text-xs text-ink">
