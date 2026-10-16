@@ -1,12 +1,13 @@
 import type { PlayerErrorCode } from '../types/player'
 
 /**
- * Satu-satunya HTMLAudioElement di aplikasi. Komponen tidak boleh membuat
- * `new Audio()` sendiri; semuanya lewat AudioPlayerProvider → useAudioPlayer.
+ * Satu-satunya pasangan HTMLAudioElement di aplikasi (aktif + cadangan untuk crossfade). Komponen tidak boleh
+ * membuat `new Audio()` sendiri; semuanya lewat AudioPlayerProvider → useAudioPlayer.
  *
  * Catatan CORS: elemen sengaja TIDAK diberi atribut `crossOrigin`. Tanpa atribut itu
  * browser memuat media dalam mode no-cors, jadi audio dari host mana pun bisa diputar
- * tanpa header CORS. Konsekuensinya audio tidak bisa dianalisis lewat Web Audio API.
+ * tanpa header CORS. Konsekuensinya audio tidak bisa dianalisis lewat Web Audio API, jadi fade dan
+ * crossfade memakai `audio.volume` pada dua elemen (aktif + cadangan), bukan GainNode.
  */
 
 export type AudioEngineEventType =
@@ -101,20 +102,74 @@ export function mediaErrorToCode(code: number | undefined): PlayerErrorCode | nu
   }
 }
 
+/** Interval pembaruan volume saat fade. Waktu dihitung dari jam, jadi tetap benar walau interval ditunda. */
+const RAMP_TICK_MS = 50
+
+/** Kurva penguatan 0..1 sebagai fungsi progres t (0..1). */
+type GainCurve = (t: number) => number
+
+/** Daya sama: total kekerasan relatif stabil saat dua lagu bertukar (tanpa "lubang" di tengah). */
+const FADE_IN_CURVE: GainCurve = (t) => Math.sin((t * Math.PI) / 2)
+const FADE_OUT_CURVE: GainCurve = (t) => Math.cos((t * Math.PI) / 2)
+/** Turun kuadratik: terdengar mengecil merata (telinga tidak linear), lalu senyap pelan di ujung. */
+const SLEEP_CURVE: GainCurve = (t) => (1 - t) * (1 - t)
+
+interface Ramp {
+  /** Elemen audio yang diatur, atau 'master' untuk volume keseluruhan. */
+  target: HTMLAudioElement | 'master'
+  curve: GainCurve
+  startedAt: number
+  durationMs: number
+  onDone?: () => void
+}
+
+/**
+ * Volume lewat `audio.volume` berlaku di Android/desktop, tetapi iOS Safari mengabaikannya (selalu 1).
+ * Tanpa kontrol volume, fade dan crossfade tidak mungkin; fitur itu dimatikan.
+ */
+function detectVolumeControl(): boolean {
+  try {
+    const probe = new Audio()
+    probe.volume = 0.5
+    return probe.volume === 0.5
+  } catch {
+    return false
+  }
+}
+
 class AudioEngine {
+  /** Elemen aktif: satu-satunya yang event-nya diteruskan ke pendengar. */
   private audio: HTMLAudioElement | null = null
+  /** Elemen cadangan: memuat lagu berikutnya untuk crossfade; senyap sampai dipakai. */
+  private standby: HTMLAudioElement | null = null
   /**
    * URL yang sedang diminta pemanggil. Selama null (setelah stop/prime), semua
    * event dari elemen diabaikan, sehingga audio senyap atau sisa lagu lama
    * tidak pernah terbaca sebagai "Playing".
    */
   private activeSource: string | null = null
+  private standbySource: string | null = null
+  private standbyUnlocked = false
   private readonly listeners = new Set<AudioEngineListener>()
+
+  // Volume akhir elemen = master × trackEnd × gain elemen. Semuanya 0..1.
+  private masterGain = 1
+  private trackEndGain = 1
+  private readonly elementGain = new Map<HTMLAudioElement, number>()
+  private ramps: Ramp[] = []
+  private rampTimer: ReturnType<typeof setInterval> | null = null
+  /** Naik setiap reset; operasi async lama (crossfade yang sedang menunggu play()) membatalkan diri. */
+  private epoch = 0
+  private volumeControl: boolean | null = null
 
   private readonly handleDomEvent = (event: Event) => {
     const audio = this.audio
-    if (!audio || this.activeSource === null) return
-    const type = event.type as AudioEngineEventType
+    // Hanya elemen aktif yang dilaporkan; elemen cadangan / lagu lama yang sedang memudar diabaikan.
+    if (!audio || event.target !== audio || this.activeSource === null) return
+    this.emitFrom(audio, event.type as AudioEngineEventType)
+  }
+
+  private emitFrom(audio: HTMLAudioElement, type: AudioEngineEventType) {
     this.emit({
       type,
       currentTime: audio.currentTime,
@@ -129,13 +184,17 @@ class AudioEngine {
     for (const listener of [...this.listeners]) listener(event)
   }
 
+  private createElement(): HTMLAudioElement {
+    const audio = new Audio()
+    audio.preload = 'auto'
+    for (const type of EVENT_TYPES) audio.addEventListener(type, this.handleDomEvent)
+    this.elementGain.set(audio, 1)
+    return audio
+  }
+
   private element(): HTMLAudioElement {
-    if (!this.audio) {
-      const audio = new Audio()
-      audio.preload = 'auto'
-      for (const type of EVENT_TYPES) audio.addEventListener(type, this.handleDomEvent)
-      this.audio = audio
-    }
+    if (!this.audio) this.audio = this.createElement()
+    if (!this.standby) this.standby = this.createElement()
     return this.audio
   }
 
@@ -146,20 +205,225 @@ class AudioEngine {
     }
   }
 
+  /** False di perangkat yang mengabaikan `audio.volume` (iOS Safari): fade/crossfade tidak tersedia. */
+  supportsVolumeFade(): boolean {
+    if (this.volumeControl === null) this.volumeControl = detectVolumeControl()
+    return this.volumeControl
+  }
+
+  // ---- Volume & fade ------------------------------------------------------------------------
+
+  private applyVolume(audio: HTMLAudioElement) {
+    const value = this.masterGain * this.trackEndGain * (this.elementGain.get(audio) ?? 1)
+    audio.volume = Math.min(1, Math.max(0, value))
+  }
+
+  private applyAllVolumes() {
+    if (this.audio) this.applyVolume(this.audio)
+    if (this.standby) this.applyVolume(this.standby)
+  }
+
+  private setElementGain(audio: HTMLAudioElement, gain: number) {
+    this.elementGain.set(audio, gain)
+    this.applyVolume(audio)
+  }
+
+  private ramp(target: Ramp['target'], curve: GainCurve, durationMs: number, onDone?: () => void) {
+    // Satu ramp per target: yang baru menggantikan yang lama.
+    this.ramps = this.ramps.filter((item) => item.target !== target)
+    this.ramps.push({ target, curve, startedAt: performance.now(), durationMs: Math.max(1, durationMs), onDone })
+    if (this.rampTimer === null) this.rampTimer = setInterval(() => this.tickRamps(), RAMP_TICK_MS)
+    this.tickRamps()
+  }
+
+  private tickRamps() {
+    const now = performance.now()
+    const finished: Ramp[] = []
+    for (const item of [...this.ramps]) {
+      const t = Math.min(1, (now - item.startedAt) / item.durationMs)
+      const gain = item.curve(t)
+      if (item.target === 'master') {
+        this.masterGain = gain
+        this.applyAllVolumes()
+      } else {
+        this.setElementGain(item.target, gain)
+      }
+      if (t >= 1) finished.push(item)
+    }
+    if (finished.length > 0) this.ramps = this.ramps.filter((item) => !finished.includes(item))
+    if (this.ramps.length === 0 && this.rampTimer !== null) {
+      clearInterval(this.rampTimer)
+      this.rampTimer = null
+    }
+    for (const item of finished) item.onDone?.()
+  }
+
+  private clearRamps() {
+    this.ramps = []
+    if (this.rampTimer !== null) {
+      clearInterval(this.rampTimer)
+      this.rampTimer = null
+    }
+  }
+
+  /** True selama dua lagu masih saling memudar. */
+  isCrossfading(): boolean {
+    return this.ramps.some((item) => item.target !== 'master')
+  }
+
+  /**
+   * Volume mengecil pelan sampai senyap dalam `durationMs`, lalu menjeda (posisi tersimpan, bisa dilanjutkan).
+   * Volume dikembalikan penuh SETELAH jeda, jadi saat dilanjutkan suaranya normal.
+   */
+  fadeOutAndPause(durationMs: number): void {
+    if (!this.audio || this.activeSource === null || this.audio.paused) return
+    if (!this.supportsVolumeFade() || durationMs <= 0) {
+      this.pause()
+      return
+    }
+    this.ramp('master', SLEEP_CURVE, durationMs, () => this.pause())
+  }
+
+  /** Membatalkan fade-out sleep timer dan mengembalikan volume penuh. */
+  cancelFade(): void {
+    this.ramps = this.ramps.filter((item) => item.target !== 'master')
+    this.masterGain = 1
+    this.applyAllVolumes()
+  }
+
+  /**
+   * Penguatan akhir lagu (0..1) untuk sleep timer "setelah lagu ini selesai": dihitung ulang
+   * dari posisi putar oleh pemanggil, jadi aman terhadap seek.
+   */
+  setTrackEndGain(gain: number): void {
+    const next = this.supportsVolumeFade() ? Math.min(1, Math.max(0, gain)) : 1
+    if (next === this.trackEndGain) return
+    this.trackEndGain = next
+    this.applyAllVolumes()
+  }
+
+  /** Mengembalikan semua volume ke penuh, membatalkan fade, dan melepas elemen cadangan. */
+  private resetFades(): void {
+    this.epoch++
+    this.clearRamps()
+    this.masterGain = 1
+    this.trackEndGain = 1
+    this.releaseStandby()
+    for (const audio of this.elementGain.keys()) this.elementGain.set(audio, 1)
+    this.applyAllVolumes()
+  }
+
+  // ---- Crossfade ----------------------------------------------------------------------------
+
+  private releaseStandby() {
+    const audio = this.standby
+    this.standbySource = null
+    if (!audio) return
+    audio.pause()
+    audio.removeAttribute('src')
+    audio.load()
+    this.elementGain.set(audio, 1)
+    this.applyVolume(audio)
+  }
+
+  /** Memuat lagu berikutnya di elemen cadangan (tanpa memutar). False jika belum bisa dipakai. */
+  preload(url: string): boolean {
+    this.element()
+    const standby = this.standby
+    if (!standby || this.activeSource === null || this.isCrossfading() || !this.supportsVolumeFade()) return false
+    if (this.standbySource === url) return true
+    this.standbySource = url
+    this.elementGain.set(standby, 0)
+    this.applyVolume(standby)
+    standby.src = url
+    return true
+  }
+
+  /** Membuang lagu yang sudah dimuat di elemen cadangan. */
+  clearPreload(): void {
+    if (this.standbySource !== null && !this.isCrossfading()) this.releaseStandby()
+  }
+
+  /** Lagu cadangan sudah cukup termuat untuk mulai tanpa jeda. */
+  isPreloadReady(url: string): boolean {
+    const standby = this.standby
+    return (
+      standby !== null &&
+      this.standbySource === url &&
+      !standby.error &&
+      standby.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA
+    )
+  }
+
+  /**
+   * Memutar lagu cadangan dari 0:00 dengan volume naik sambil lagu aktif memudar, lalu elemen cadangan
+   * menjadi elemen aktif. Mengembalikan true jika berpindah; false (tanpa mengubah apa pun pada lagu
+   * yang sedang berjalan) jika play() ditolak atau engine di-reset di tengah jalan.
+   * Event dari elemen baru langsung diteruskan setelah berpindah.
+   */
+  async crossfadeToStandby(durationMs: number): Promise<boolean> {
+    const incoming = this.standby
+    const outgoing = this.audio
+    const url = this.standbySource
+    if (!incoming || !outgoing || url === null || this.activeSource === null) return false
+    const epoch = this.epoch
+    this.setElementGain(incoming, 0)
+    try {
+      incoming.currentTime = 0
+      await incoming.play()
+    } catch {
+      return false
+    }
+    if (epoch !== this.epoch) {
+      incoming.pause()
+      return false
+    }
+    this.audio = incoming
+    this.standby = outgoing
+    this.activeSource = url
+    this.standbySource = null
+    this.ramp(incoming, FADE_IN_CURVE, durationMs)
+    this.ramp(outgoing, FADE_OUT_CURVE, durationMs, () => {
+      // Hanya bersihkan jika elemen itu belum dipakai ulang untuk preload berikutnya.
+      if (this.standby === outgoing && this.standbySource === null) this.releaseStandby()
+    })
+    // Metadata elemen baru sudah terbit saat masih cadangan (diabaikan); kirim ulang agar waktu/durasi menyusul.
+    this.emitFrom(incoming, 'durationchange')
+    return true
+  }
+
+  /** Menyelesaikan crossfade yang sedang berjalan seketika: lagu lama dilepas, lagu baru volume penuh. */
+  private settleCrossfade() {
+    if (!this.isCrossfading()) return
+    this.ramps = this.ramps.filter((item) => item.target === 'master')
+    if (this.audio) this.setElementGain(this.audio, 1)
+    if (this.standbySource === null) this.releaseStandby()
+  }
+
+  // ---- Pemutaran ----------------------------------------------------------------------------
+
   /**
    * Panggil SINKRON di dalam handler klik, sebelum menunggu jaringan.
    * Safari/iOS hanya mengizinkan play() jika elemen pernah dimulai oleh gestur
    * pengguna; setelah `await fetch` gestur itu sudah hangus. Memutar WAV senyap
    * lebih dulu membuat pemutaran sesungguhnya (setelah URL didapat) diizinkan.
-   * Efek samping: audio sebelumnya langsung berhenti.
+   * Efek samping: audio sebelumnya langsung berhenti. Elemen cadangan ikut dibuka kuncinya sekali,
+   * agar crossfade nanti (tanpa gestur) boleh memutarnya.
    */
   prime(): void {
     const audio = this.element()
+    this.resetFades()
     this.activeSource = null
     audio.src = SILENT_SRC
     audio.play().catch(() => {
       // Tidak masalah: hanya untuk membuka kunci.
     })
+    const standby = this.standby
+    if (standby && !this.standbyUnlocked) {
+      this.standbyUnlocked = true
+      standby.src = SILENT_SRC
+      standby.play().catch(() => {})
+    }
   }
 
   /** Memuat dan memutar URL. Resolve = play() diterima; status "playing" tetap menunggu event. */
@@ -186,7 +450,12 @@ class AudioEngine {
   }
 
   pause(): void {
+    // Jeda manual di tengah fade/crossfade: selesaikan dulu, lalu jeda; volume kembali penuh untuk lanjut.
+    this.settleCrossfade()
+    this.ramps = this.ramps.filter((item) => item.target !== 'master')
     this.audio?.pause()
+    this.masterGain = 1
+    this.applyAllVolumes()
   }
 
   /**
@@ -206,6 +475,7 @@ class AudioEngine {
   /** Menghentikan dan melepas sumber audio (koneksi unduhan ikut dilepas). */
   stop(): void {
     this.activeSource = null
+    this.resetFades()
     const audio = this.audio
     if (!audio) return
     audio.pause()
@@ -216,10 +486,14 @@ class AudioEngine {
   /** Melepas elemen sepenuhnya. Aman dipanggil berulang; elemen dibuat lagi saat dibutuhkan. */
   dispose(): void {
     this.stop()
-    const audio = this.audio
-    if (!audio) return
-    for (const type of EVENT_TYPES) audio.removeEventListener(type, this.handleDomEvent)
+    for (const audio of [this.audio, this.standby]) {
+      if (!audio) continue
+      for (const type of EVENT_TYPES) audio.removeEventListener(type, this.handleDomEvent)
+      this.elementGain.delete(audio)
+    }
     this.audio = null
+    this.standby = null
+    this.standbyUnlocked = false
   }
 }
 
