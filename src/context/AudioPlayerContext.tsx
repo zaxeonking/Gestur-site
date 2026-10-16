@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components */
-import { createContext, useEffect, useMemo, type ReactNode } from 'react'
+import { createContext, useMemo, type ReactNode } from 'react'
 import { useAudioPlayerController } from '../hooks/useAudioPlayerController'
 import type { AudioPlayerActions, PlaybackTime, PlayerSnapshot } from '../types/player'
 import type { PlaylistTrack } from '../types/spotify'
@@ -21,12 +21,9 @@ export function AudioPlayerProvider({ children }: { children: ReactNode }) {
   const { state, time, queueState, actions } = useAudioPlayerController(playlist?.tracks ?? NO_TRACKS)
   const snapshot = useMemo<PlayerSnapshot>(() => ({ ...state, ...queueState }), [state, queueState])
 
-  // Playlist dihapus atau diganti: hentikan audio agar tidak berjalan tanpa daftar lagunya.
-  const playlistId = playlist?.id ?? null
-  const { cleanup } = actions
-  useEffect(() => {
-    cleanup()
-  }, [playlistId, cleanup])
+  // Playlist diganti, dicari ulang, atau dihapus: lagu yang sedang diputar TIDAK dihentikan. Antrean aktif
+  // adalah salinan (`state.queue`) yang berdiri sendiri, jadi audio terus berjalan lengkap dengan antreannya.
+  // Pemutaran baru hanya terjadi saat pengguna memilih/Play All lagu; `cleanup()` hanya dipanggil eksplisit.
 
   return (
     <PlayerActionsContext.Provider value={actions}>

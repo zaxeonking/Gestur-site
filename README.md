@@ -120,7 +120,7 @@ Tidak ada library state baru: queue hidup di state yang sama dengan playback (`A
 - **Berurutan.** Saat event `ended`, lagu berikutnya otomatis diputar (URL audio diminta ulang seperti biasa).
   Di lagu terakhir pemutar berhenti di status `ended` (tidak mengulang dari awal).
 - **Next/Previous/Retry** memakai queue yang sedang berjalan, bukan playlist saat ini, sehingga tetap konsisten
-  walau playlist dimuat ulang dengan id yang sama. Playlist diganti/dihapus → `cleanup()` mengosongkan queue.
+  walau playlist dimuat ulang dengan id yang sama. Playlist diganti/dicari ulang/dihapus → lagu yang sedang diputar tetap berjalan bersama antreannya (tidak ada `cleanup()` otomatis).
 - Tidak ada perubahan tampilan; hanya tombol **Play All** yang kini memakai `playAll`.
 
 ## Tampilan Queue & navigasi (tahap 7)
@@ -160,7 +160,7 @@ ini lewat `LibraryProvider` (di dalam `PlaylistProvider` dan `AudioPlayerProvide
   halaman dibuka ulang. Playlist aktif yang belum ada di Koleksi menampilkan tombol **Simpan ke Koleksi**.
 - **Buka.** `restorePlaylist` (di `PlaylistContext`) menampilkan salinan tersimpan tanpa memanggil API, lalu pindah ke Beranda.
   Salinan itu bisa lebih lama dari playlist di Spotify (header menyebutnya; tombol **Muat ulang** memperbarui). Membuka playlist
-  yang sudah aktif tidak mengubah apa pun. Membuka playlist lain mengikuti aturan lama: playlist diganti → audio berhenti.
+  yang sudah aktif tidak mengubah apa pun. Membuka atau memuat playlist lain tidak menghentikan lagu yang sedang diputar; audio baru berganti hanya saat pengguna memilih lagu.
 - **Hapus** meminta konfirmasi di kartu dan hanya menghapus salinan di Koleksi: playlist aktif dan pemutaran tidak ikut berhenti.
   Tombol X di form impor tetap menghapus playlist aktif, bukan isi Koleksi.
 - **Recently Played.** Lagu dicatat saat status benar-benar `playing` (bukan saat tombol ditekan atau URL audio didapat); jeda/lanjut
@@ -250,3 +250,12 @@ Antrean yang dibuka dari pemutar penuh menumpuk di atasnya: Back menutup antrean
 
 Menu tahan-lama (menu lagu dan menu di panel antrean) bukan bagian dari state router; keduanya memakai
 `hooks/useOverlayHistory.ts` agar Back juga hanya menutup menu itu.
+
+## Sesi pemutar tersimpan & sleep timer custom
+
+- **Sesi tersimpan** (`utils/playerSession.ts`): antrean, lagu aktif, urutan acak, dan posisi detik disimpan di perangkat
+  (antrean saat berubah; posisi tiap ±5 dtk, saat dijeda, app ke background, dan lagu selesai). Saat app dibuka lagi,
+  pemutar muncul dalam keadaan **dijeda** (tanpa suara sendiri). Tekan Play: URL audio diminta ulang (tautan lama
+  kedaluwarsa), lalu loncat ke posisi tersimpan. Jika server tidak mendukung seek, lagu mulai dari awal. Posisi dalam
+  3 detik terakhir lagu diabaikan. Data rusak/tidak konsisten = sesi dibuang. `cleanup()` menghapus sesi.
+- **Sleep timer custom**: selain 15/30/45/60 menit, ada isian menit bulat 1–720 di Sleep timer.

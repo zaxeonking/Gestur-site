@@ -16,7 +16,7 @@ export default function PlayerDock() {
     usePlayerUi()
   const active = status !== 'idle' && currentTrack !== null
 
-  // Pemutar dikosongkan (cleanup / playlist diganti) atau halaman dimuat ulang dengan penanda lama:
+  // Pemutar dikosongkan (cleanup dipanggil) atau halaman dimuat ulang dengan penanda lama:
   // bersihkan penanda lapisan.
   useEffect(() => {
     if (!active) resetOverlays()

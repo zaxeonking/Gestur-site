@@ -1,5 +1,5 @@
 import { Moon, Music2, TimerOff } from 'lucide-react'
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { useSleepTimer } from '../../context/SleepTimerContext'
 import { useOverlayHistory } from '../../hooks/useOverlayHistory'
@@ -7,6 +7,10 @@ import { formatTime } from '../../utils/formatTime'
 import Action from './SheetAction'
 
 const OPTIONS_MINUTES = [15, 30, 45, 60] as const
+/** Batas menit untuk timer buatan sendiri (12 jam). */
+const CUSTOM_MIN = 1
+const CUSTOM_MAX = 720
+const FOCUSABLE = 'button:not([disabled]), input:not([disabled])'
 
 /** Sisa waktu (detik) menuju `endsAt`, diperbarui tiap detik. null jika tidak ada timer menit. */
 export function useRemainingSeconds(endsAt: number | null): number | null {
@@ -49,6 +53,8 @@ export default function SleepTimerSheet({ onClose }: { onClose: () => void }) {
   const { endsAt, atTrackEnd, active, startMinutes, startAtTrackEnd, cancel } = useSleepTimer()
   const remaining = useRemainingSeconds(endsAt)
   const sheetRef = useRef<HTMLDivElement>(null)
+  const [custom, setCustom] = useState('')
+  const [customError, setCustomError] = useState<string | null>(null)
   useOverlayHistory(true, onClose)
 
   useEffect(() => {
@@ -62,6 +68,16 @@ export default function SleepTimerSheet({ onClose }: { onClose: () => void }) {
     onClose()
   }
 
+  const submitCustom = (event: FormEvent) => {
+    event.preventDefault()
+    const minutes = Number(custom.trim())
+    if (custom.trim() === '' || !Number.isInteger(minutes) || minutes < CUSTOM_MIN || minutes > CUSTOM_MAX) {
+      setCustomError(`Isi menit bulat ${CUSTOM_MIN}–${CUSTOM_MAX}.`)
+      return
+    }
+    choose(() => startMinutes(minutes))
+  }
+
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     // Portal tetap meneruskan event ke induk React (pemutar penuh): hentikan agar Tab/Esc tidak ditangani dua kali.
     event.stopPropagation()
@@ -70,7 +86,7 @@ export default function SleepTimerSheet({ onClose }: { onClose: () => void }) {
       return
     }
     if (event.key !== 'Tab') return
-    const items = Array.from(sheetRef.current?.querySelectorAll<HTMLElement>('button:not([disabled])') ?? [])
+    const items = Array.from(sheetRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? [])
     if (items.length === 0) return
     const first = items[0]
     const last = items[items.length - 1]
@@ -110,6 +126,39 @@ export default function SleepTimerSheet({ onClose }: { onClose: () => void }) {
           {OPTIONS_MINUTES.map((minutes) => (
             <Action key={minutes} icon={Moon} label={`${minutes} menit`} onClick={() => choose(() => startMinutes(minutes))} />
           ))}
+          <li className="px-3 py-1.5">
+            <form onSubmit={submitCustom} noValidate className="flex items-center gap-3">
+              <Moon className="h-5 w-5 shrink-0 text-ink" aria-hidden="true" />
+              <label htmlFor="sleep-custom" className="sr-only">
+                Menit sendiri
+              </label>
+              <input
+                id="sleep-custom"
+                type="number"
+                inputMode="numeric"
+                min={CUSTOM_MIN}
+                max={CUSTOM_MAX}
+                step={1}
+                value={custom}
+                onChange={(e) => {
+                  setCustom(e.target.value)
+                  setCustomError(null)
+                }}
+                placeholder="Menit sendiri, mis. 20 atau 90"
+                aria-invalid={customError !== null}
+                aria-describedby={customError ? 'sleep-custom-error' : undefined}
+                className="h-11 min-w-0 flex-1 rounded-full bg-raised px-4 text-sm text-ink placeholder:text-ink-faint focus:outline-none focus:ring-2 focus:ring-accent"
+              />
+              <button type="submit" className="btn-primary h-11 shrink-0 px-5 text-sm">
+                Mulai
+              </button>
+            </form>
+            {customError && (
+              <p id="sleep-custom-error" role="alert" className="mt-1 pl-8 text-xs text-danger">
+                {customError}
+              </p>
+            )}
+          </li>
           <Action
             icon={Music2}
             label="Setelah lagu ini selesai"

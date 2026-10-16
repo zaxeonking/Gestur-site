@@ -13,6 +13,7 @@ import type {
   RepeatMode,
 } from '../types/player'
 import type { PlayAllHandler, PlaybackInfo, PlaylistTrack, PlayTrackHandler } from '../types/spotify'
+import { clearPlayerSession, loadPlayerSession, savePlayerPosition, savePlayerQueue } from '../utils/playerSession'
 import { readJson, writeJson } from '../utils/safeStorage'
 import {
   createShuffleOrder,
@@ -52,6 +53,8 @@ interface StartOptions {
   keepOrder?: boolean
   /** Jangan reset hitungan ulang 1x (dipakai saat memuat ulang lagu yang sama untuk mengulang). */
   keepReplay?: boolean
+  /** Setelah audio termuat, loncat ke detik ini (lanjut dari sesi tersimpan). */
+  resumeAt?: number
 }
 
 /** Lagu berikutnya yang sedang/sudah dimuat di elemen cadangan untuk crossfade. */
@@ -126,6 +129,53 @@ function loadPrefs(): PlayerPrefs {
   }
 }
 
+/** Simpan posisi paling sering sekali per interval ini saat lagu berjalan. */
+const POSITION_SAVE_INTERVAL_MS = 5_000
+/** Posisi tersimpan yang terlalu dekat dengan akhir lagu diabaikan: lagu mulai dari awal. */
+const RESUME_END_MARGIN_S = 3
+
+/** "3:45" / "1:02:10" -> detik; null jika formatnya tidak dikenali. */
+function parseDurationText(text: string): number | null {
+  if (!/^\d{1,3}(:\d{1,2}){1,2}$/.test(text.trim())) return null
+  return text
+    .trim()
+    .split(':')
+    .reduce((total, part) => total * 60 + Number(part), 0)
+}
+
+interface BootSession {
+  state: AudioPlayerState
+  time: PlaybackTime
+}
+
+/**
+ * Memulihkan sesi terakhir (antrean, lagu aktif, posisi) sebagai keadaan "dijeda": tidak ada audio yang
+ * dimuat dan tidak ada suara sampai pengguna menekan Play. Play lalu meminta URL baru (tautan lama
+ * sudah kedaluwarsa) dan lanjut dari posisi tersimpan.
+ */
+function buildBootSession(): BootSession | null {
+  const saved = loadPlayerSession()
+  if (!saved) return null
+  const track = saved.queue[saved.index]
+  const prefs = loadPrefs()
+  const shuffleOrder = prefs.shuffle
+    ? isOrderUsable(saved.shuffleOrder, saved.queue.length, saved.index)
+      ? saved.shuffleOrder
+      : createShuffleOrder(saved.queue.length, saved.index)
+    : null
+  return {
+    state: {
+      ...initialState,
+      status: 'paused',
+      currentTrack: track,
+      queue: saved.queue,
+      currentIndex: saved.index,
+      shuffleOrder,
+    },
+    time: { currentTime: saved.position, duration: parseDurationText(track.duration), seekable: false },
+  }
+}
+
 const ACTIVE_STATUSES: PlaybackStatus[] = ['playing', 'buffering', 'loading']
 
 /**
@@ -133,8 +183,9 @@ const ACTIVE_STATUSES: PlaybackStatus[] = ['playing', 'buffering', 'loading']
  * `useAudioPlayer()` agar semuanya berbagi satu state dan satu audio engine.
  */
 export function useAudioPlayerController(playlistTracks: PlaylistTrack[]) {
-  const [state, setState] = useState<AudioPlayerState>(initialState)
-  const [time, setTime] = useState<PlaybackTime>(initialTime)
+  const [boot] = useState(buildBootSession)
+  const [state, setState] = useState<AudioPlayerState>(boot?.state ?? initialState)
+  const [time, setTime] = useState<PlaybackTime>(boot?.time ?? initialTime)
   const [prefs, setPrefs] = useState<PlayerPrefs>(loadPrefs)
   // True saat lagu sedang di putaran ulang ke-2 (mode `once`).
   const [repeatingOnce, setRepeatingOnce] = useState(false)
@@ -159,7 +210,7 @@ export function useAudioPlayerController(playlistTracks: PlaylistTrack[]) {
   const replayCurrentRef = useRef<() => void>(() => {})
   // Dipanggil tiap `timeupdate`: memuat lagu berikutnya lebih awal, memulai crossfade, dan meredam volume akhir lagu.
   const crossfadeStepRef = useRef<(event: AudioEngineEvent) => void>(() => {})
-  const timeRef = useRef<PlaybackTime>(initialTime)
+  const timeRef = useRef<PlaybackTime>(boot?.time ?? initialTime)
   const updateTime = useCallback((next: (prev: PlaybackTime) => PlaybackTime) => {
     const value = next(timeRef.current)
     if (value === timeRef.current) return
@@ -168,7 +219,14 @@ export function useAudioPlayerController(playlistTracks: PlaylistTrack[]) {
   }, [])
 
   // stateRef adalah sumber kebenaran untuk aksi/event; setState hanya memicu render.
-  const stateRef = useRef<AudioPlayerState>(initialState)
+  const stateRef = useRef<AudioPlayerState>(boot?.state ?? initialState)
+  // True selama keadaan berasal dari sesi tersimpan dan belum ada audio yang dimuat (Play = mulai dari URL baru).
+  const restoredRef = useRef(boot !== null)
+  // Detik tujuan setelah audio termuat (lanjut dari posisi tersimpan); null = mulai dari awal.
+  const resumeAtRef = useRef<number | null>(null)
+  const lastPositionSaveRef = useRef(0)
+  // Diisi setelah `persistPosition` didefinisikan; dipanggil dari handler event audio.
+  const persistPositionRef = useRef<(force: boolean, position?: number) => void>(() => {})
   const requestIdRef = useRef(0)
   const preloadRef = useRef<Preload | null>(null)
   // True dari saat crossfade diputuskan sampai engine selesai berpindah; mencegah pemicu ganda.
@@ -218,6 +276,24 @@ export function useAudioPlayerController(playlistTracks: PlaylistTrack[]) {
   const handleEngineEvent = useCallback(
     (event: AudioEngineEvent) => {
       const { status } = stateRef.current
+      // Lanjut dari posisi tersimpan: coba loncat begitu audio bisa di-seek; menyerah saat sudah `playing`.
+      const resumeAt = resumeAtRef.current
+      if (
+        resumeAt !== null &&
+        (event.type === 'loadedmetadata' || event.type === 'durationchange' || event.type === 'progress' || event.type === 'playing')
+      ) {
+        if (event.duration !== null && resumeAt >= event.duration - RESUME_END_MARGIN_S) {
+          resumeAtRef.current = null
+        } else {
+          const applied = audioEngine.seek(resumeAt)
+          if (applied !== null) {
+            resumeAtRef.current = null
+            updateTime((prev) => ({ ...prev, currentTime: applied }))
+          } else if (event.type === 'playing') {
+            resumeAtRef.current = null
+          }
+        }
+      }
       switch (event.type) {
         case 'play':
           // play() diminta lagi (mis. lanjut dari jeda). Belum berarti suara berjalan.
@@ -233,6 +309,7 @@ export function useAudioPlayerController(playlistTracks: PlaylistTrack[]) {
         case 'pause':
           // Saat lagu selesai browser mengirim `pause` lalu `ended`; biarkan `ended` yang menentukan.
           if (event.ended) break
+          persistPositionRef.current(true, event.currentTime)
           if (ACTIVE_STATUSES.includes(status)) {
             clearStartTimer()
             setStatus('paused')
@@ -243,7 +320,10 @@ export function useAudioPlayerController(playlistTracks: PlaylistTrack[]) {
         case 'loadedmetadata':
         case 'progress':
         case 'seeked':
-          if (event.type === 'timeupdate') crossfadeStepRef.current(event)
+          if (event.type === 'timeupdate') {
+            crossfadeStepRef.current(event)
+            persistPositionRef.current(false, event.currentTime)
+          }
           updateTime((prev) =>
             prev.currentTime === event.currentTime &&
             prev.duration === event.duration &&
@@ -254,6 +334,11 @@ export function useAudioPlayerController(playlistTracks: PlaylistTrack[]) {
           break
         case 'ended': {
           clearStartTimer()
+          // Lagu selesai: sesi berikutnya mulai dari awal lagu ini (bukan dari detik terakhir).
+          if (stateRef.current.currentTrack) {
+            lastPositionSaveRef.current = Date.now()
+            savePlayerPosition(stateRef.current.currentTrack.id, 0)
+          }
           // Sleep timer "akhir lagu": berhenti di sini, apa pun mode ulang/antreannya.
           if (stopAfterTrackRef.current) {
             stopAfterTrackRef.current = false
@@ -329,6 +414,8 @@ export function useAudioPlayerController(playlistTracks: PlaylistTrack[]) {
     (queue: readonly PlaylistTrack[], index: number, options: StartOptions = {}) => {
       const track = queue[index]
       if (!track) return
+      restoredRef.current = false
+      resumeAtRef.current = options.resumeAt !== undefined && options.resumeAt > 0 ? options.resumeAt : null
       if (!options.keepReplay) {
         replayedRef.current = false
         setRepeatingOnce(false)
@@ -364,7 +451,7 @@ export function useAudioPlayerController(playlistTracks: PlaylistTrack[]) {
         playbackInfo: null,
         error: null,
       })
-      updateTime(() => initialTime)
+      updateTime(() => (resumeAtRef.current === null ? initialTime : { ...initialTime, currentTime: resumeAtRef.current }))
 
       void (async () => {
         // Setiap permintaan play selalu mengambil mp3_url terbaru (tanpa cache).
@@ -440,6 +527,11 @@ export function useAudioPlayerController(playlistTracks: PlaylistTrack[]) {
         audioEngine.pause() // status berubah lewat event `pause`
         break
       case 'paused': {
+        // Sesi dipulihkan dari penyimpanan: belum ada audio, mulai dari URL baru lalu lompat ke posisi tersimpan.
+        if (restoredRef.current && currentIndex !== null) {
+          startPlayback(queue, currentIndex, { keepOrder: true, resumeAt: timeRef.current.currentTime })
+          break
+        }
         const requestId = requestIdRef.current
         audioEngine.resume().catch((error: unknown) => {
           if (requestIdRef.current !== requestId) return
@@ -480,6 +572,8 @@ export function useAudioPlayerController(playlistTracks: PlaylistTrack[]) {
     clearStartTimer()
     discardPreload()
     audioEngine.stop()
+    restoredRef.current = false
+    resumeAtRef.current = null
     stopAfterTrackRef.current = false
     setStopAfterTrackState(false)
     if (stateRef.current !== initialState) {
@@ -757,6 +851,47 @@ export function useAudioPlayerController(playlistTracks: PlaylistTrack[]) {
       setRepeatingOnce(false)
     }
   }, [updatePrefs])
+
+  /** Menyimpan posisi lagu aktif. `force` mengabaikan pembatas interval (jeda, app ke background). */
+  const persistPosition = useCallback((force: boolean, position?: number) => {
+    const { currentTrack, status } = stateRef.current
+    if (!currentTrack) return
+    // Selama menunggu loncat ke posisi tersimpan, waktu masih 0: jangan menimpa posisi yang benar.
+    if (resumeAtRef.current !== null) return
+    const now = Date.now()
+    if (!force && now - lastPositionSaveRef.current < POSITION_SAVE_INTERVAL_MS) return
+    lastPositionSaveRef.current = now
+    savePlayerPosition(currentTrack.id, status === 'ended' ? 0 : (position ?? timeRef.current.currentTime))
+  }, [])
+  useEffect(() => {
+    persistPositionRef.current = persistPosition
+  }, [persistPosition])
+
+  // Antrean / lagu aktif / urutan acak berubah: simpan (dan posisi ikut ke 0:00 untuk lagu baru).
+  const { currentTrack: savedTrack, queue: savedQueue, currentIndex: savedIndex, shuffleOrder: savedOrder } = state
+  useEffect(() => {
+    if (!savedTrack || savedIndex === null) {
+      clearPlayerSession()
+      return
+    }
+    savePlayerQueue(savedQueue, savedIndex, savedOrder)
+    // Sesi yang baru dipulihkan memakai posisi tersimpan; selain itu lagu baru mulai dari awal.
+    persistPosition(true, restoredRef.current ? timeRef.current.currentTime : 0)
+  }, [savedTrack, savedQueue, savedIndex, savedOrder, persistPosition])
+
+  // App ke background / ditutup: simpan posisi terakhir.
+  useEffect(() => {
+    const flush = () => persistPositionRef.current(true)
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') flush()
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    window.addEventListener('pagehide', flush)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility)
+      window.removeEventListener('pagehide', flush)
+    }
+  }, [])
 
   const actions = useMemo<AudioPlayerActions>(
     () => ({
