@@ -1,12 +1,7 @@
 import { ClipboardPaste, Link2, Loader2, X } from 'lucide-react'
-import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
+import { useId, useRef, useState, type FormEvent } from 'react'
 import { usePlaylist } from '../../context/PlaylistContext'
-import { classifyImportInput, getLiveLoadTarget, validateSpotifyPlaylistUrl } from '../../utils/spotifyUrl'
-
-/** Jeda setelah berhenti mengetik sebelum pencarian otomatis jalan. */
-const LIVE_SEARCH_DEBOUNCE_MS = 700
-
-const sameQuery = (a: string, b: string) => a.toLowerCase().replace(/\s+/g, ' ') === b.toLowerCase().replace(/\s+/g, ' ')
+import { classifyImportInput, validateSpotifyPlaylistUrl } from '../../utils/spotifyUrl'
 
 export default function PlaylistImportForm() {
   const { status, loadPlaylist, reset } = usePlaylist()
@@ -16,22 +11,7 @@ export default function PlaylistImportForm() {
   const errorId = `${inputId}-error`
   const loading = status === 'loading'
   const inputKind = classifyImportInput(value).kind
-  /** Teks terakhir yang sudah dimuat (otomatis atau lewat tombol), agar tidak diulang. */
   const inputRef = useRef<HTMLInputElement>(null)
-  const lastLoadedRef = useRef<string | null>(null)
-
-  // Pencarian langsung: muat otomatis setelah pengguna berhenti mengetik.
-  useEffect(() => {
-    const target = getLiveLoadTarget(value)
-    if (!target) return
-    const timer = setTimeout(() => {
-      if (lastLoadedRef.current !== null && sameQuery(lastLoadedRef.current, target)) return
-      lastLoadedRef.current = target
-      setValidationError(null)
-      void loadPlaylist(target)
-    }, LIVE_SEARCH_DEBOUNCE_MS)
-    return () => clearTimeout(timer)
-  }, [value, loadPlaylist])
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -50,7 +30,6 @@ export default function PlaylistImportForm() {
       }
     }
     setValidationError(null)
-    lastLoadedRef.current = value.trim()
     await loadPlaylist(value)
   }
 
@@ -59,10 +38,9 @@ export default function PlaylistImportForm() {
     reset()
     setValue('')
     setValidationError(null)
-    lastLoadedRef.current = null
   }
 
-  /** Tempel teks dari clipboard; pencarian langsung jalan lewat debounce seperti mengetik biasa. */
+  /** Tempel teks dari clipboard; pencarian tetap manual (tekan tombol/Enter). */
   async function handlePaste() {
     try {
       const text = (await navigator.clipboard.readText()).trim()
