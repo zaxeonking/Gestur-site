@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
 import { AlertCircle, ListMusic, RotateCw } from 'lucide-react'
 import { useLibrary } from '../../context/LibraryContext'
+import { useTrackMenu } from '../../context/TrackMenuContext'
 import { usePlaylist } from '../../context/PlaylistContext'
 import { useAudioPlayer } from '../../hooks/useAudioPlayer'
 import { noticeMessage } from '../../utils/libraryNotice'
 import { classifyImportInput } from '../../utils/spotifyUrl'
 import { getRowActivity } from '../../utils/playerStatus'
+import { QUEUE_RESULT_TEXT } from '../../utils/queueResultText'
 import EmptyState from '../ui/EmptyState'
 import AddToPlaylistSheet from './AddToPlaylistSheet'
 import PlaylistHeader from './PlaylistHeader'
@@ -44,6 +46,7 @@ export default function PlaylistView() {
   const wasSearch = requestedUrl !== null && ['search', 'track'].includes(classifyImportInput(requestedUrl).kind)
   const player = useAudioPlayer()
   const { notice, savedIdFor, savePlaylist, removePlaylist, dismissNotice } = useLibrary()
+  const { showToast } = useTrackMenu()
 
   const [picking, setPicking] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
@@ -86,6 +89,14 @@ export default function PlaylistView() {
     // Status tombol hanya berubah jika operasi benar-benar tersimpan; kegagalan ditampilkan lewat `notice`.
     if (savedId !== null) removePlaylist(savedId)
     else savePlaylist(playlist)
+  }
+
+  // Hanya hasil cari judul / tautan lagu (lagu satuan) yang boleh dicampur ke antrean. Tautan playlist tidak.
+  const isSingleSearch = playlist.source === 'search'
+  const handleAddToQueue = () => {
+    const track = playlist.tracks[0]
+    if (!track) return
+    showToast(QUEUE_RESULT_TEXT[player.addToQueue(track, { fromSearch: true })])
   }
 
   return (
@@ -131,6 +142,7 @@ export default function PlaylistView() {
         // Lagu satuan (hasil cari judul / tautan lagu) tidak bisa masuk Koleksi; simpan lewat "Playlist saya".
         onToggleSaved={playlist.source === 'search' ? undefined : handleToggleSaved}
         onAddToPlaylist={playlist.source === 'search' && playlist.tracks.length > 0 ? () => setPicking(true) : undefined}
+        onAddToQueue={isSingleSearch && playlist.tracks.length > 0 ? handleAddToQueue : undefined}
       />
 
       {picking && playlist.tracks[0] && (
@@ -155,6 +167,8 @@ export default function PlaylistView() {
         onPlay={player.selectTrack}
         playingTrackId={player.currentTrack?.id ?? null}
         playbackActivity={getRowActivity(player.status)}
+        // Lagu satuan dari pencarian boleh masuk antrean lewat menu lagu; playlist tetap tidak dicampur.
+        searchable={isSingleSearch}
       />
     </section>
   )

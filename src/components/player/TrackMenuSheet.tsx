@@ -2,6 +2,7 @@ import { ExternalLink, FolderPlus, Link2, ListEnd, ListPlus, ListX, Play } from 
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { useAudioPlayer } from '../../hooks/useAudioPlayer'
 import type { QueueAddResult } from '../../types/player'
+import { QUEUE_RESULT_TEXT } from '../../utils/queueResultText'
 import type { PlaylistTrack } from '../../types/spotify'
 import { fallbackCover } from '../../utils/fallbackCover'
 import { getUpcomingTracks } from '../../utils/playerQueue'
@@ -12,15 +13,6 @@ import AddToPlaylistPicker from './AddToPlaylistPicker'
 import Action from './SheetAction'
 
 const FOCUS = 'focus-ring'
-
-const RESULT_TEXT: Record<QueueAddResult, string> = {
-  started: 'Antrean masih kosong, jadi lagu ini langsung diputar',
-  added: 'Ditambahkan ke antrean',
-  moved: 'Dipindah ke urutan berikutnya',
-  duplicate: 'Lagu ini sudah ada di antrean',
-  current: 'Lagu ini sedang diputar',
-  blocked: 'Lagu dari luar antrean hanya bisa ditambahkan lewat Cari',
-}
 
 interface TrackMenuSheetProps {
   track: PlaylistTrack
@@ -33,7 +25,7 @@ interface TrackMenuSheetProps {
 /**
  * Menu opsi untuk satu lagu dari daftar mana pun (playlist, Cari, riwayat), muncul saat baris
  * ditahan lama atau diklik kanan. Antrean tidak dicampur: lagu di luar antrean yang sedang berjalan
- * hanya bisa dimasukkan ke antrean jika dibuka dari lagu satuan di halaman Cari (`fromSearch`), bukan dari playlist.
+ * hanya bisa dimasukkan ke antrean jika dibuka dari lagu satuan hasil pencarian (`fromSearch`: halaman Cari atau hasil cari judul/tautan lagu di Beranda), bukan dari playlist.
  * Mobile: bottom sheet. Desktop: kartu di tengah bawah.
  */
 export default function TrackMenuSheet({ track, fromSearch, onClose, onToast }: TrackMenuSheetProps) {
@@ -72,7 +64,7 @@ export default function TrackMenuSheet({ track, fromSearch, onClose, onToast }: 
   }, [picking])
 
   const run = (action: () => QueueAddResult) => {
-    onToast(RESULT_TEXT[action()])
+    onToast(QUEUE_RESULT_TEXT[action()])
     onClose()
   }
 
