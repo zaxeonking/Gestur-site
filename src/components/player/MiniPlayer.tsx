@@ -11,6 +11,8 @@ import SeekBar from './SeekBar'
 
 /** Jarak seret ke bawah (px) yang cukup untuk memperkecil, dan awal gerakan dianggap seretan. */
 const SHRINK_DISTANCE = 70
+/** Jarak seret ke atas (px) yang membuka pemutar penuh. */
+const OPEN_DISTANCE = 60
 const DRAG_START_PX = 8
 
 /**
@@ -30,6 +32,7 @@ export default function MiniPlayer({ onOpen, onOpenQueue }: { onOpen: () => void
   const drag = useRef({ id: -1, x: 0, y: 0, active: false, crossed: false, lastY: 0, lastT: 0, velocity: 0 })
   const swallowClick = useRef(false)
   const collapseTimer = useRef(0)
+  const resetTimer = useRef(0)
 
   useLayoutEffect(() => {
     const el = dockRef.current
@@ -41,17 +44,33 @@ export default function MiniPlayer({ onOpen, onOpenQueue }: { onOpen: () => void
     return () => observer.disconnect()
   }, [])
 
-  useLayoutEffect(() => () => window.clearTimeout(collapseTimer.current), [])
+  useLayoutEffect(
+    () => () => {
+      window.clearTimeout(collapseTimer.current)
+      window.clearTimeout(resetTimer.current)
+    },
+    [],
+  )
 
-  /** Posisikan kartu mengikuti jari: turun + mengecil + memudar. dy<0 diberi hambatan karet. */
-  const applyDrag = (rawDy: number, animate: boolean) => {
+  /** Posisikan kartu mengikuti jari: ke bawah = turun + mengecil + memudar; ke atas = naik + sedikit membesar. */
+  const applyDrag = (dy: number, animate: boolean) => {
     const el = cardRef.current
     if (!el) return
-    const dy = rawDy >= 0 ? rawDy : -Math.min(14, Math.sqrt(-rawDy) * 2)
-    const p = Math.min(Math.max(dy, 0) / (SHRINK_DISTANCE * 1.6), 1)
     el.style.transition = animate ? 'transform 320ms cubic-bezier(0.34,1.56,0.64,1), opacity 200ms' : 'none'
-    el.style.transform = rawDy === 0 ? '' : `translate3d(0, ${dy}px, 0) scale(${1 - p * 0.14})`
-    el.style.opacity = rawDy === 0 ? '' : String(1 - p * 0.35)
+    if (dy === 0) {
+      el.style.transform = ''
+      el.style.opacity = ''
+      return
+    }
+    if (dy > 0) {
+      const p = Math.min(dy / (SHRINK_DISTANCE * 1.6), 1)
+      el.style.transform = `translate3d(0, ${dy}px, 0) scale(${1 - p * 0.14})`
+      el.style.opacity = String(1 - p * 0.35)
+    } else {
+      const p = Math.min(-dy / (OPEN_DISTANCE * 1.6), 1)
+      el.style.transform = `translate3d(0, ${dy * 0.7}px, 0) scale(${1 + p * 0.05})`
+      el.style.opacity = ''
+    }
   }
 
   const springBack = () => {
@@ -82,6 +101,25 @@ export default function MiniPlayer({ onOpen, onOpenQueue }: { onOpen: () => void
   const expand = () => {
     setGrowFrom(side)
     setCollapsed(false)
+  }
+
+  /** Kartu meluncur ke atas sambil memudar, bersamaan dengan pemutar penuh yang naik menutupinya. */
+  const openFull = () => {
+    const el = cardRef.current
+    if (el) {
+      el.style.transition = 'transform 260ms cubic-bezier(0.22,1,0.36,1), opacity 220ms ease-in'
+      el.style.transform = 'translate3d(0, -48px, 0) scale(1.06)'
+      el.style.opacity = '0'
+      window.clearTimeout(resetTimer.current)
+      // Setelah pemutar penuh menutupi layar, kembalikan kartu agar muncul lagi saat pemutar ditutup.
+      resetTimer.current = window.setTimeout(() => {
+        if (!cardRef.current) return
+        cardRef.current.style.transition = 'none'
+        cardRef.current.style.transform = ''
+        cardRef.current.style.opacity = ''
+      }, 600)
+    }
+    onOpen()
   }
 
   const onPointerDown = (event: PointerEvent<HTMLDivElement>) => {
@@ -119,7 +157,7 @@ export default function MiniPlayer({ onOpen, onOpenQueue }: { onOpen: () => void
     d.lastY = event.clientY
     d.lastT = event.timeStamp
     // Getar kecil saat melewati titik "lepas sekarang = mengecil".
-    const crossed = dy > SHRINK_DISTANCE
+    const crossed = dy > SHRINK_DISTANCE || dy < -OPEN_DISTANCE
     if (crossed !== d.crossed) {
       d.crossed = crossed
       if (crossed) navigator.vibrate?.(10)
@@ -140,6 +178,7 @@ export default function MiniPlayer({ onOpen, onOpenQueue }: { onOpen: () => void
     }, 120)
     const dy = event.clientY - d.y
     if (!cancelled && (dy > SHRINK_DISTANCE || (d.velocity > 0.6 && dy > 24))) shrink()
+    else if (!cancelled && (dy < -OPEN_DISTANCE || (d.velocity < -0.6 && dy < -24))) openFull()
     else springBack()
   }
 

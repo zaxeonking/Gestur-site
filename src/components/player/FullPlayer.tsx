@@ -102,7 +102,7 @@ export default function FullPlayer({ onClose, onOpenQueue }: { onClose: () => vo
       aria-modal="true"
       aria-label="Pemutar penuh"
       onKeyDown={onKeyDown}
-      className="fixed inset-0 z-50 flex animate-sheet-up flex-col overflow-y-auto bg-bg"
+      className="fixed inset-0 z-50 flex animate-sheet-expand flex-col overflow-y-auto bg-bg"
       style={{ backgroundImage: `linear-gradient(180deg, ${now.cover.from}66 0%, #121212 70%)` }}
     >
       <div className="mx-auto flex w-full max-w-md flex-1 flex-col pb-[max(1.5rem,env(safe-area-inset-bottom))] pl-[max(1.5rem,env(safe-area-inset-left))] pr-[max(1.5rem,env(safe-area-inset-right))] pt-[max(0.75rem,env(safe-area-inset-top))]">
