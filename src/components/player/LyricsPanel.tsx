@@ -1,11 +1,11 @@
 import { Loader2 } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, type ReactNode } from 'react'
 import { useAudioPlayer, usePlaybackTime } from '../../hooks/useAudioPlayer'
 import type { LyricsState } from '../../hooks/useLyrics'
-import type { LyricsResult, SyncedVersion } from '../../services/lyricsApi'
+import type { LyricsResult } from '../../services/lyricsApi'
+import { estimateActive, useLyricTiming, type LyricItem as Item } from '../../hooks/useLyricTiming'
 import { useLongPress } from '../../hooks/useLongPress'
-import { findActiveLine } from '../../utils/lrc'
-import { readJson, removeKey, writeJson } from '../../utils/safeStorage'
+import { removeKey, writeJson } from '../../utils/safeStorage'
 
 interface LyricsPanelProps {
   state: LyricsState
@@ -23,14 +23,6 @@ const FADE_MASK = {
   maskImage: 'linear-gradient(to bottom, transparent, #000 22%, #000 78%, transparent)',
   WebkitMaskImage: 'linear-gradient(to bottom, transparent, #000 22%, #000 78%, transparent)',
 } as const
-
-/** Layar memutakhirkan waktu ±4x/detik; baris disorot sedikit lebih awal agar terasa pas dengan suara. */
-const LEAD_S = 0.3
-/** Selisih durasi (detik) lirik vs audio: sampai batas ini waktu lirik dipakai apa adanya. */
-const TIMING_EXACT_S = 15
-/** Di luar batas di atas, waktu lirik diregangkan sesuai rasio durasi hanya jika rasionya masuk akal (versi cepat/lambat/terpotong). */
-const SCALE_MIN = 0.8
-const SCALE_MAX = 1.25
 
 /**
  * Lirik di pemutar penuh. SELALU bergerak mengikuti lagu:
@@ -63,12 +55,6 @@ export default function LyricsPanel({ state, onRetry, trackKey }: LyricsPanelPro
   if (result.kind === 'instrumental') return <Message>Lagu ini instrumental, tidak ada lirik.</Message>
   if (result.kind === 'plain') return <PlainLyrics lines={result.lines} />
   return <SyncedLyrics result={result} trackKey={trackKey} />
-}
-
-interface Item {
-  text: string
-  /** Detik pada versi lirik; ada hanya untuk mode berwaktu. */
-  time?: number
 }
 
 /** Satu baris lirik. Tahan lama = "baris ini yang sedang dinyanyikan sekarang" (penyelarasan manual). */
@@ -141,18 +127,6 @@ function LineList({
   )
 }
 
-/**
- * Baris aktif menurut PROGRES lagu (tanpa waktu per baris): baris berisi dibagi rata sepanjang lagu,
- * dengan sedikit jeda di awal (intro) dan akhir (outro). Hanya perkiraan, tetapi tetap bergerak.
- */
-function estimateActive(items: Item[], currentTime: number, duration: number | null): number {
-  if (!duration || !Number.isFinite(duration) || duration <= 0) return -1
-  const filled = items.map((item, i) => (item.text.trim() ? i : -1)).filter((i) => i >= 0)
-  if (filled.length === 0) return -1
-  const progress = Math.min(1, Math.max(0, (currentTime / duration - 0.06) / 0.86))
-  return filled[Math.min(filled.length - 1, Math.floor(progress * filled.length))]
-}
-
 const ESTIMATE_NOTE = 'Waktu lirik tidak tersedia, sorotan hanya perkiraan.'
 
 function PlainLyrics({ lines }: { lines: string[] }) {
@@ -163,49 +137,8 @@ function PlainLyrics({ lines }: { lines: string[] }) {
 }
 
 function SyncedLyrics({ result, trackKey }: { result: Extract<LyricsResult, { kind: 'synced' }>; trackKey?: string }) {
-  // `result` stabil selama lagu sama, jadi `primary` tidak berubah identitas di setiap render.
-  const primary = useMemo<SyncedVersion>(() => ({ lines: result.lines, duration: result.duration }), [result])
-  const alternatives = result.alternatives
-  const { currentTime, seekable, duration: audioDuration } = usePlaybackTime()
+  const { items, active, mode, offset, setOffset, ratio, lyricTime, lyricsDuration, audioDuration, seekable, storageKey } = useLyricTiming(result, trackKey)
   const { seekTo } = useAudioPlayer()
-
-  // Pilih versi yang durasinya paling dekat dengan audio SATU KALI saja (saat durasi audio pertama diketahui),
-  // lalu kunci. Berganti versi di tengah lagu membuat lirik loncat-loncat.
-  const [picked, setPicked] = useState<SyncedVersion | null>(null)
-  useEffect(() => setPicked(null), [primary])
-  useEffect(() => {
-    if (picked !== null || alternatives.length === 0) return
-    if (audioDuration === null || !Number.isFinite(audioDuration) || audioDuration <= 0) return
-    const gap = (v: SyncedVersion) => (v.duration === null ? Infinity : Math.abs(v.duration - audioDuration))
-    const best = alternatives.reduce((a, b) => (gap(b) < gap(a) ? b : a))
-    // Ganti hanya jika jelas lebih pas (>= 2 dtk lebih dekat dari versi utama).
-    setPicked(gap(best) <= gap(primary) - 2 ? best : primary)
-  }, [picked, primary, alternatives, audioDuration])
-  const { lines, duration: lyricsDuration } = picked ?? primary
-
-  const items = useMemo<Item[]>(() => lines.map((line) => ({ text: line.text, time: line.time })), [lines])
-
-  // Penyelarasan manual (detik): positif = lirik maju. Disimpan per lagu supaya tidak perlu diulang.
-  const storageKey = trackKey ? `musicverse:lyricsOffset:${trackKey.toLowerCase()}` : null
-  const [offset, setOffset] = useState(0)
-  useEffect(() => {
-    if (!storageKey) return setOffset(0)
-    const saved = readJson(storageKey)
-    setOffset(saved.status === 'ok' && typeof saved.value === 'number' && Number.isFinite(saved.value) ? saved.value : 0)
-  }, [storageKey])
-
-  // Mode waktu: 'exact' | 'scaled' | 'estimated'.
-  const known = audioDuration !== null && lyricsDuration !== null && Number.isFinite(audioDuration) && audioDuration > 0
-  const diff = known ? Math.abs(lyricsDuration - audioDuration) : 0
-  const ratio = known ? audioDuration / lyricsDuration : 1
-  const mode: 'exact' | 'scaled' | 'estimated' = !known || diff <= TIMING_EXACT_S ? 'exact' : ratio >= SCALE_MIN && ratio <= SCALE_MAX ? 'scaled' : 'estimated'
-  // Pada mode 'scaled', waktu audio dikembalikan ke skala versi lirik sebelum dicari barisnya.
-  const lyricTime = mode === 'scaled' ? currentTime / ratio : currentTime
-
-  const active = useMemo(
-    () => (mode === 'estimated' ? estimateActive(items, currentTime, audioDuration) : findActiveLine(lines, lyricTime + offset + LEAD_S)),
-    [mode, items, lines, currentTime, lyricTime, offset, audioDuration],
-  )
 
   const modeNote =
     mode === 'estimated'

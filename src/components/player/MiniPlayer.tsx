@@ -23,15 +23,16 @@ export default function MiniPlayer({ onOpen, onOpenQueue }: { onOpen: () => void
 
   return (
     <div className="pointer-events-none relative z-40 h-0 shrink-0">
-    <div className="absolute inset-x-0 bottom-0 mb-4 ml-[max(0.75rem,env(safe-area-inset-left))] mr-[max(0.75rem,env(safe-area-inset-right))] flex animate-player-up flex-col gap-2 lg:mx-6 lg:mb-6">
-    <div className="pointer-events-auto">
-      <LyricLine />
-    </div>
+    <div className="absolute inset-x-0 bottom-0 mb-4 ml-[max(0.75rem,env(safe-area-inset-left))] mr-[max(0.75rem,env(safe-area-inset-right))] flex animate-player-up flex-col lg:mx-6 lg:mb-6">
     <div
       role="region"
       aria-label="Pemutar musik"
-      className="pointer-events-auto overflow-hidden rounded-3xl border border-white/10 bg-white/[0.08] shadow-[0_8px_32px_rgba(0,0,0,0.45),inset_0_1px_0_rgba(255,255,255,0.12)] backdrop-blur-2xl backdrop-saturate-150 [-webkit-backdrop-filter:blur(24px)_saturate(150%)]"
+      className="pointer-events-auto overflow-hidden rounded-3xl border border-white/10 bg-[#242424]/70 shadow-[0_8px_32px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.1)] backdrop-blur-3xl backdrop-saturate-150 [-webkit-backdrop-filter:blur(40px)_saturate(150%)]"
     >
+      {/* Lirik menyatu dengan kartu: satu kaca blur yang sama, hanya dipisah garis tipis. */}
+      <div className="border-b border-white/10">
+        <LyricLine />
+      </div>
       <div className="mx-auto grid max-w-6xl grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 gap-y-0.5 px-4 pb-2.5 pt-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)_minmax(0,1fr)] lg:gap-x-6 lg:px-6 lg:py-2">
         <button
           type="button"
