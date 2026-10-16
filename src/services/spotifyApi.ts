@@ -542,12 +542,20 @@ async function requestTrack(trackUrl: string, options: FetchPlaylistOptions = {}
  * Pembatalan (`aborted`) tidak pernah memicu cadangan.
  */
 async function requestByLink(trackUrl: string, options: FetchPlaylistOptions = {}): Promise<PlaybackInfo> {
-  try {
-    return await requestDownload(trackUrl, options)
-  } catch (error) {
-    if (error instanceof SpotifyApiError && error.code === 'aborted') throw error
-    console.warn('[MusicVerse] API download (kyzz) gagal, memakai NexaDev /spotify (cadangan):', error)
+  // kyzz (audio penuh) dicoba sampai 3 kali sebelum pindah ke cadangan, karena permintaan kedua dan
+  // seterusnya kadang gagal sesaat (rate limit/timeout).
+  let lastError: unknown
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      return await requestDownload(trackUrl, options)
+    } catch (error) {
+      if (error instanceof SpotifyApiError && error.code === 'aborted') throw error
+      lastError = error
+      console.warn(`[MusicVerse] API download (kyzz) gagal (percobaan ${attempt}/3):`, error)
+      if (attempt < 3) await new Promise((r) => setTimeout(r, 600 * attempt))
+    }
   }
+  console.warn('[MusicVerse] Memakai NexaDev /spotify (cadangan):', lastError)
   return requestTrack(trackUrl, options)
 }
 
@@ -652,8 +660,9 @@ export async function fetchPlaybackInfo(
   const titleQuery = [stripArtistPrefix(track.title, track.artists ?? ''), track.artists?.split(/\s*[,&;]\s*/)[0]].filter(Boolean).join(' ')
   const sources: Source[] = []
   if (link) {
-    sources.push({ name: 'kyzz', viaLink: true, run: (o) => requestDownload(link, o) })
-    sources.push({ name: 'nexa-tautan', viaLink: true, run: (o) => requestTrack(link, o) })
+    // Berurutan, bukan paralel: kyzz (audio penuh) diutamakan; NexaDev hanya jika kyzz gagal.
+    // Sebelumnya keduanya paralel dan NexaDev bisa menang dengan audio ~30 detik.
+    sources.push({ name: 'kyzz', viaLink: true, run: (o) => requestByLink(link, o) })
   }
   if (!link) {
     // Tanpa tautan: cari lewat judul hanya untuk menemukan tautan lagu, lalu ambil audio penuhnya.
