@@ -55,4 +55,26 @@ export function installBackGuard(router: DataRouter): void {
   }
 
   router.navigate = guarded as DataRouter['navigate']
+
+  // Pengaman kedua (tidak bergantung pada router): kalau Back mendarat di halaman lain
+  // selain "/", langsung lompat ke entri "/" (entri paling bawah, idx 0).
+  // Ini juga menangani riwayat lama yang sudah terlanjur menumpuk (search -> library -> utama ...).
+  let lastPath = window.location.pathname
+  let lastIdx: number = window.history.state?.idx ?? 0
+
+  window.addEventListener('popstate', () => {
+    const path = window.location.pathname
+    const idx: number = window.history.state?.idx ?? 0
+    const wentBack = idx < lastIdx
+    const pageChanged = path !== lastPath
+    lastPath = path
+    lastIdx = idx
+    // Back biasa (bukan penutup overlay: overlay tetap di halaman yang sama).
+    if (wentBack && pageChanged && path !== HOME && idx > 0) window.history.go(-idx)
+  })
+
+  router.subscribe((state) => {
+    lastPath = state.location.pathname
+    lastIdx = window.history.state?.idx ?? 0
+  })
 }
