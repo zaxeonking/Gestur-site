@@ -12,6 +12,9 @@ import HomePage from './pages/HomePage'
 import LibraryPage from './pages/LibraryPage'
 import MyPlaylistPage from './pages/MyPlaylistPage'
 import SearchPage from './pages/SearchPage'
+import { installBackGuard, prepareHistory } from './utils/backGuard'
+
+prepareHistory()
 
 const router = createBrowserRouter([
   {
@@ -29,6 +32,8 @@ const router = createBrowserRouter([
     ],
   },
 ])
+
+installBackGuard(router)
 
 export default function App() {
   return (
