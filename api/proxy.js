@@ -13,6 +13,10 @@ const UPSTREAMS = {
   },
 }
 const TIMEOUT_MS = 25000
+// Cloudflare 52x (mis. 525 SSL handshake) dan 502-504 sering sementara / tergantung edge: coba ulang.
+const RETRY_STATUSES = new Set([502, 503, 504, 520, 521, 522, 523, 524, 525, 526, 527])
+const MAX_ATTEMPTS = 3
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 export default async function handler(req, res) {
   const incoming = new URL(req.url, 'http://localhost')
@@ -30,15 +34,22 @@ export default async function handler(req, res) {
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
 
   try {
-    const response = await fetch(target, {
-      method: 'GET',
-      headers: {
-        Accept: 'application/json',
-        'User-Agent': 'Mozilla/5.0 (compatible; MusicVerse/1.0)',
-        ...(upstream.headers || {}),
-      },
-      signal: controller.signal,
-    })
+    let response
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
+      response = await fetch(target, {
+        method: 'GET',
+        headers: {
+          Accept: 'application/json, text/plain, */*',
+          'Accept-Language': 'id-ID,id;q=0.9,en;q=0.8',
+          'User-Agent':
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
+          ...(upstream.headers || {}),
+        },
+        signal: controller.signal,
+      })
+      if (!RETRY_STATUSES.has(response.status) || attempt === MAX_ATTEMPTS) break
+      await sleep(600 * attempt)
+    }
     const body = await response.text()
     res.status(response.status)
     res.setHeader('Content-Type', response.headers.get('content-type') || 'application/json')

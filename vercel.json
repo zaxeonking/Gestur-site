@@ -1,8 +1,23 @@
 {
+  "regions": [
+    "sin1"
+  ],
   "rewrites": [
-    { "source": "/nexa/:path*", "destination": "/api/proxy?upstream=nexa&path=:path*" },
-    { "source": "/kyzz/:path*", "destination": "/api/proxy?upstream=kyzz&path=:path*" },
-    { "source": "/netease/:path*", "destination": "/api/proxy?upstream=netease&path=:path*" },
-    { "source": "/((?!api/).*)", "destination": "/index.html" }
+    {
+      "source": "/nexa/:path*",
+      "destination": "/api/proxy?upstream=nexa&path=:path*"
+    },
+    {
+      "source": "/kyzz/:path*",
+      "destination": "/api/proxy?upstream=kyzz&path=:path*"
+    },
+    {
+      "source": "/netease/:path*",
+      "destination": "/api/proxy?upstream=netease&path=:path*"
+    },
+    {
+      "source": "/((?!api/).*)",
+      "destination": "/index.html"
+    }
   ]
 }
