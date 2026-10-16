@@ -129,6 +129,11 @@ export interface AudioPlayerActions {
    */
   playAll: PlayAllHandler
   /**
+   * Memutar `tracks` sebagai antrean baru, mulai dari posisi `index` (dipakai "Playlist saya").
+   * Indeks di luar daftar diabaikan.
+   */
+  playList: (tracks: readonly PlaylistTrack[], index: number) => void
+  /**
    * Melompat ke lagu pada posisi `index` di queue yang sedang berjalan (queue tidak diganti).
    * Dipakai tampilan Queue. Indeks di luar queue diabaikan.
    */

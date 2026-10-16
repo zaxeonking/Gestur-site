@@ -1,5 +1,5 @@
-import { ExternalLink, Link2, ListEnd, ListPlus, ListX, Play } from 'lucide-react'
-import { useEffect, useMemo, useRef, type KeyboardEvent } from 'react'
+import { ExternalLink, FolderPlus, Link2, ListEnd, ListPlus, ListX, Play } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { useAudioPlayer } from '../../hooks/useAudioPlayer'
 import type { QueueAddResult } from '../../types/player'
 import type { PlaylistTrack } from '../../types/spotify'
@@ -8,6 +8,7 @@ import { getUpcomingTracks } from '../../utils/playerQueue'
 import { extractTrackId } from '../../utils/spotifyUrl'
 import CoverArt from '../ui/CoverArt'
 import { useOverlayHistory } from '../../hooks/useOverlayHistory'
+import AddToPlaylistPicker from './AddToPlaylistPicker'
 import Action from './SheetAction'
 
 const FOCUS = 'focus-ring'
@@ -39,6 +40,7 @@ export default function TrackMenuSheet({ track, fromSearch, onClose, onToast }: 
   const player = useAudioPlayer()
   useOverlayHistory(true, onClose)
   const sheetRef = useRef<HTMLDivElement>(null)
+  const [picking, setPicking] = useState(false)
   const fallback = useMemo(() => fallbackCover(`${track.title}${track.album}`), [track.title, track.album])
   const href = extractTrackId(track.url) ? track.url : undefined
 
@@ -64,6 +66,11 @@ export default function TrackMenuSheet({ track, fromSearch, onClose, onToast }: 
     return () => previous?.focus?.()
   }, [])
 
+  // Berpindah antara opsi lagu dan pilihan playlist: fokus ke elemen pertama tampilan baru.
+  useEffect(() => {
+    sheetRef.current?.querySelector<HTMLElement>('input, button:not([disabled])')?.focus()
+  }, [picking])
+
   const run = (action: () => QueueAddResult) => {
     onToast(RESULT_TEXT[action()])
     onClose()
@@ -87,7 +94,7 @@ export default function TrackMenuSheet({ track, fromSearch, onClose, onToast }: 
     }
     if (event.key !== 'Tab') return
     const items = Array.from(
-      sheetRef.current?.querySelectorAll<HTMLElement>('a[href], button:not([disabled])') ?? [],
+      sheetRef.current?.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), input:not([disabled])') ?? [],
     )
     if (items.length === 0) return
     const first = items[0]
@@ -122,74 +129,88 @@ export default function TrackMenuSheet({ track, fromSearch, onClose, onToast }: 
           </span>
         </div>
 
-        {!hasQueue && (
-          <p className="mx-4 mb-2 rounded-md bg-raised px-3 py-2 text-xs text-ink-muted">
-            Belum ada antrean. Memilih salah satu opsi antrean akan memutar lagu ini lebih dulu.
-          </p>
-        )}
-
-        {!canQueue && (
-          <p className="mx-4 mb-2 rounded-md bg-raised px-3 py-2 text-xs text-ink-muted">
-            Antrean sedang berisi lagu dari playlist lain. Cari lagu ini lewat halaman Cari untuk menambahkannya ke antrean.
-          </p>
-        )}
-
-        <ul className="border-t border-line px-2 pt-2">
-          <Action
-            icon={Play}
-            label="Putar sekarang"
-            onClick={() => {
-              player.playTrack(track, -1)
+        {picking ? (
+          <AddToPlaylistPicker
+            track={track}
+            onBack={() => setPicking(false)}
+            onDone={(message) => {
+              onToast(message)
               onClose()
             }}
           />
-          {canQueue && (
-            <Action
-              icon={ListEnd}
-              label="Putar berikutnya"
-              hint={hasQueue ? 'Tepat setelah lagu yang sedang diputar' : undefined}
-              onClick={() => run(() => player.playNextInQueue(track, { fromSearch }))}
-              disabled={isCurrent}
-            />
-          )}
-          {inQueue ? (
-            <Action
-              icon={ListX}
-              label="Hapus dari antrean"
-              onClick={() => {
-                player.removeUpcoming(upcomingPosition)
-                onToast('Dihapus dari antrean')
-                onClose()
-              }}
-              danger
-            />
-          ) : (
-            canQueue && (
+        ) : (
+          <>
+            {!hasQueue && (
+              <p className="mx-4 mb-2 rounded-md bg-raised px-3 py-2 text-xs text-ink-muted">
+                Belum ada antrean. Memilih salah satu opsi antrean akan memutar lagu ini lebih dulu.
+              </p>
+            )}
+
+            {!canQueue && (
+              <p className="mx-4 mb-2 rounded-md bg-raised px-3 py-2 text-xs text-ink-muted">
+                Antrean sedang berisi lagu dari playlist lain. Cari lagu ini lewat halaman Cari untuk menambahkannya ke antrean.
+              </p>
+            )}
+
+            <ul className="border-t border-line px-2 pt-2">
               <Action
-                icon={ListPlus}
-                label="Tambah ke antrean"
-                hint={hasQueue ? 'Di urutan paling akhir' : undefined}
-                onClick={() => run(() => player.addToQueue(track, { fromSearch }))}
-                disabled={isCurrent}
+                icon={Play}
+                label="Putar sekarang"
+                onClick={() => {
+                  player.playTrack(track, -1)
+                  onClose()
+                }}
               />
-            )
-          )}
-          {href && <Action icon={Link2} label="Salin tautan Spotify" onClick={() => void copyLink()} />}
-          {href && (
-            <li>
-              <a
-                href={href}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={onClose}
-                className={`flex min-h-[3rem] w-full items-center gap-4 rounded-md px-3 text-sm font-medium text-ink transition-colors hover:bg-raised active:bg-raised ${FOCUS}`}
-              >
-                <ExternalLink className="h-5 w-5 shrink-0" aria-hidden="true" />
-                Buka di Spotify
-              </a>
-            </li>
-          )}
-        </ul>
+              {canQueue && (
+                <Action
+                  icon={ListEnd}
+                  label="Putar berikutnya"
+                  hint={hasQueue ? 'Tepat setelah lagu yang sedang diputar' : undefined}
+                  onClick={() => run(() => player.playNextInQueue(track, { fromSearch }))}
+                  disabled={isCurrent}
+                />
+              )}
+              {inQueue ? (
+                <Action
+                  icon={ListX}
+                  label="Hapus dari antrean"
+                  onClick={() => {
+                    player.removeUpcoming(upcomingPosition)
+                    onToast('Dihapus dari antrean')
+                    onClose()
+                  }}
+                  danger
+                />
+              ) : (
+                canQueue && (
+                  <Action
+                    icon={ListPlus}
+                    label="Tambah ke antrean"
+                    hint={hasQueue ? 'Di urutan paling akhir' : undefined}
+                    onClick={() => run(() => player.addToQueue(track, { fromSearch }))}
+                    disabled={isCurrent}
+                  />
+                )
+              )}
+              <Action icon={FolderPlus} label="Simpan ke playlist saya" onClick={() => setPicking(true)} />
+              {href && <Action icon={Link2} label="Salin tautan Spotify" onClick={() => void copyLink()} />}
+              {href && (
+                <li>
+                  <a
+                    href={href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={onClose}
+                    className={`flex min-h-[3rem] w-full items-center gap-4 rounded-md px-3 text-sm font-medium text-ink transition-colors hover:bg-raised active:bg-raised ${FOCUS}`}
+                  >
+                    <ExternalLink className="h-5 w-5 shrink-0" aria-hidden="true" />
+                    Buka di Spotify
+                  </a>
+                </li>
+              )}
+            </ul>
+          </>
+        )}
       </div>
     </div>
   )

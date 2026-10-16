@@ -1,6 +1,7 @@
 import { AlertCircle, History, LayoutGrid, Library, List, X } from 'lucide-react'
 import { useCallback, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import MyPlaylistsSection from '../components/library/MyPlaylistsSection'
 import RecentlyPlayedList from '../components/library/RecentlyPlayedList'
 import SavedPlaylistCard from '../components/library/SavedPlaylistCard'
 import Chip from '../components/ui/Chip'
@@ -163,6 +164,8 @@ export default function LibraryPage() {
           </button>
         </section>
       )}
+
+      <MyPlaylistsSection />
 
       <section aria-label="Playlist tersimpan">
         <div ref={savedSectionRef} tabIndex={-1} className="outline-none">

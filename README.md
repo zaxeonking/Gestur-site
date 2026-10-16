@@ -259,3 +259,13 @@ Menu tahan-lama (menu lagu dan menu di panel antrean) bukan bagian dari state ro
   kedaluwarsa), lalu loncat ke posisi tersimpan. Jika server tidak mendukung seek, lagu mulai dari awal. Posisi dalam
   3 detik terakhir lagu diabaikan. Data rusak/tidak konsisten = sesi dibuang. `cleanup()` menghapus sesi.
 - **Sleep timer custom**: selain 15/30/45/60 menit, ada isian menit bulat 1–720 di Sleep timer.
+
+## Playlist saya (playlist buatan sendiri)
+
+- Dibuat dari **Koleksi → Playlist saya → Buat playlist**, atau langsung dari menu lagu (**Simpan ke playlist saya** → *Playlist baru*).
+- Menambah lagu: tahan lama baris lagu mana pun (Beranda, Cari, riwayat, halaman playlist) atau tombol **Simpan** di pemutar penuh.
+  Lagu yang sama (ID Spotify/URL) tidak ditambahkan dua kali ke satu playlist.
+- Halaman `/my/:id`: Putar semua, ganti nama, naik/turun urutan, hapus lagu, hapus playlist (dengan konfirmasi).
+- Tersimpan di `localStorage` kunci `musicverse:my-playlists:v1` (`utils/myPlaylistStorage.ts`), terpisah dari Koleksi dan
+  **tidak** kena batas 30 playlist Koleksi. Batas: 100 playlist, 1000 lagu per playlist, nama 60 karakter. Hanya metadata lagu
+  yang disimpan (tanpa URL audio). Kuota penuh / penyimpanan terblokir: perubahan ditolak dengan pesan, tidak pura-pura berhasil.

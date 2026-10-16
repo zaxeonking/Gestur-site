@@ -1,6 +1,7 @@
-import { AlertCircle, ChevronDown, Mic2 } from 'lucide-react'
+import { AlertCircle, ChevronDown, FolderPlus, Mic2 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type TouchEvent } from 'react'
 import { useLibrary } from '../../context/LibraryContext'
+import { useTrackMenu } from '../../context/TrackMenuContext'
 import { useAudioPlayer } from '../../hooks/useAudioPlayer'
 import { useLyrics } from '../../hooks/useLyrics'
 import { useNowPlaying } from '../../hooks/useNowPlaying'
@@ -24,6 +25,7 @@ export default function FullPlayer({ onClose, onOpenQueue }: { onClose: () => vo
   const { status, currentTrack, playbackInfo } = useAudioPlayer()
   const now = useNowPlaying()
   const { notice, dismissNotice } = useLibrary()
+  const { openTrackMenu } = useTrackMenu()
   const dialogRef = useRef<HTMLDivElement>(null)
   const closeRef = useRef<HTMLButtonElement>(null)
   // Tampilan tengah: sampul atau lirik. Lirik baru diminta ke server saat tampilannya dibuka.
@@ -154,8 +156,17 @@ export default function FullPlayer({ onClose, onOpenQueue }: { onClose: () => vo
 
           <TransportControls size="lg" />
 
-          <div className="flex items-center justify-center gap-3">
+          <div className="flex flex-wrap items-center justify-center gap-3">
             <CollectionButton size="lg" className="flex" />
+            <button
+              type="button"
+              onClick={() => openTrackMenu(currentTrack)}
+              aria-haspopup="dialog"
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-full border border-white/20 px-5 text-sm font-semibold text-ink transition-colors hover:border-accent active:bg-white/10 focus-ring"
+            >
+              <FolderPlus className="h-4 w-4" aria-hidden="true" />
+              Simpan
+            </button>
             <SpotifyLink url={now.spotifyUrl} variant="button" />
           </div>
 

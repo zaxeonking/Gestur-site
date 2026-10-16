@@ -34,3 +34,16 @@ export interface LibraryPrefs {
  * unavailable localStorage tidak bisa diakses; data hanya hidup selama tab terbuka
  */
 export type StorageHealth = 'ok' | 'recovered' | 'unavailable'
+
+/**
+ * Playlist buatan pengguna ("Playlist saya"). Terpisah dari Koleksi: Koleksi = salinan playlist Spotify yang
+ * pernah dimuat (dibatasi), sedangkan ini dibuat, diberi nama, dan diisi lagu sendiri. `id` selalu diawali `my-`.
+ * Setiap lagu di `tracks` memakai `id` unik di dalam playlist ini (bukan ID Spotify).
+ */
+export interface MyPlaylist {
+  id: string
+  name: string
+  createdAt: number
+  updatedAt: number
+  tracks: PlaylistTrack[]
+}

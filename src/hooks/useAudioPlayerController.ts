@@ -508,6 +508,14 @@ export function useAudioPlayerController(playlistTracks: PlaylistTrack[]) {
     [startPlayback],
   )
 
+  /** Antrean baru dari daftar yang diberikan, mulai dari `index`. */
+  const playList = useCallback(
+    (tracks: readonly PlaylistTrack[], index: number) => {
+      if (isValidIndex(tracks, index)) startPlayback(tracks, index)
+    },
+    [startPlayback],
+  )
+
   const pause = useCallback(() => {
     if (ACTIVE_STATUSES.includes(stateRef.current.status)) audioEngine.pause() // status berubah lewat event `pause`
   }, [])
@@ -898,6 +906,7 @@ export function useAudioPlayerController(playlistTracks: PlaylistTrack[]) {
       playTrack,
       selectTrack,
       playAll,
+      playList,
       playQueueItem,
       moveUpcoming,
       removeUpcoming,
@@ -921,6 +930,7 @@ export function useAudioPlayerController(playlistTracks: PlaylistTrack[]) {
       playTrack,
       selectTrack,
       playAll,
+      playList,
       playQueueItem,
       moveUpcoming,
       removeUpcoming,
