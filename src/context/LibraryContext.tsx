@@ -29,7 +29,7 @@ import { usePlaylist } from './PlaylistContext'
 
 /** Penyimpanan gagal untuk alasan yang perlu diketahui pengguna. */
 export interface LibraryNotice {
-  reason: 'quota' | 'limit' | 'invalid' | 'unavailable'
+  reason: 'quota' | 'limit' | 'invalid' | 'single' | 'unavailable'
   /** Operasi yang gagal. */
   action: 'save' | 'remove'
   /** Judul playlist/lagu yang gagal diproses. */

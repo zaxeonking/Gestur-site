@@ -67,7 +67,7 @@ export default function LibraryPage() {
 
   const sorted = useMemo(() => sortSavedPlaylists(saved, prefs.sort), [saved, prefs.sort])
   const activeId = active?.id ?? null
-  const activeUnsaved = active !== null && savedIdFor(active) === null
+  const activeUnsaved = active !== null && active.source !== 'search' && savedIdFor(active) === null
 
   /** Membuka playlist tersimpan di Beranda. Playlist yang sudah aktif dan playback-nya tidak disentuh. */
   const handleOpen = useCallback(

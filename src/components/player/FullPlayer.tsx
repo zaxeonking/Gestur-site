@@ -8,7 +8,6 @@ import { useNowPlaying } from '../../hooks/useNowPlaying'
 import { noticeMessage } from '../../utils/libraryNotice'
 import { looksLikeSameTrack, STATUS_TEXT } from '../../utils/playerStatus'
 import CoverArt from '../ui/CoverArt'
-import CollectionButton from './CollectionButton'
 import { PlayerError, QueueButton, SpotifyLink, TransportControls } from './PlayerControls'
 import LyricsPanel from './LyricsPanel'
 import SeekBar from './SeekBar'
@@ -157,7 +156,6 @@ export default function FullPlayer({ onClose, onOpenQueue }: { onClose: () => vo
           <TransportControls size="lg" />
 
           <div className="flex flex-wrap items-center justify-center gap-3">
-            <CollectionButton size="lg" className="flex" />
             <button
               type="button"
               onClick={() => openTrackMenu(currentTrack)}

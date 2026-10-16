@@ -1,4 +1,4 @@
-import type { PlaybackInfo, PlaylistDetail, PlaylistTrack } from '../types/spotify'
+import type { PlaybackInfo, PlaylistDetail } from '../types/spotify'
 import { extractSpotifyTrackLink, extractTrackId, isSafeHttpUrl } from './spotifyUrl'
 import { normalizeSearchText } from './trackSearch'
 
@@ -38,29 +38,5 @@ export function buildSearchPlaylist(query: string, info: PlaybackInfo): Playlist
         url,
       },
     ],
-  }
-}
-
-/**
- * Membungkus satu lagu yang sedang diputar menjadi entri Koleksi (`source: 'search'`, satu lagu).
- * ID mengikuti `buildSearchPlaylist` untuk tautan lagu (`lagu-{idLagu}`), jadi menyimpan dari player
- * dan dari kolom impor menghasilkan entri yang sama (tidak digandakan). Mengembalikan null jika
- * lagu tidak punya judul/URL yang bisa disimpan.
- */
-export function buildTrackCollectionEntry(track: PlaylistTrack): PlaylistDetail | null {
-  const title = track.title.trim()
-  if (!title) return null
-  const trackLink = extractSpotifyTrackLink(track.url)
-  const slug = normalizeSearchText(`${title} ${track.artists}`).replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60)
-  const id = trackLink ? `lagu-${extractTrackId(trackLink) ?? 'track'}` : `lagu-${slug || 'tanpa-judul'}`
-  // `url` dipakai "Muat ulang": tautan lagu bila ada, kalau tidak judul + artis sebagai kata kunci.
-  const url = trackLink ?? `${title} ${track.artists}`.trim()
-  return {
-    id,
-    url,
-    title,
-    cover: track.cover,
-    source: 'search',
-    tracks: [{ ...track, id: `0-${extractTrackId(track.url) ?? 'track'}` }],
   }
 }

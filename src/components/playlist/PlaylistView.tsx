@@ -118,7 +118,8 @@ export default function PlaylistView() {
         onPlayAll={() => player.playAll(playlist.tracks)}
         onReload={() => void loadPlaylist(playlist.url)}
         isSaved={savedId !== null}
-        onToggleSaved={handleToggleSaved}
+        // Lagu satuan (hasil cari judul / tautan lagu) tidak bisa masuk Koleksi; simpan lewat "Playlist saya".
+        onToggleSaved={playlist.source === 'search' ? undefined : handleToggleSaved}
       />
 
       <TrackList

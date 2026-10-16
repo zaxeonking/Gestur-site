@@ -196,8 +196,9 @@ export function readSavedPlaylists(): LibraryRead<SavedPlaylist> {
     const existing = byId.get(item.id)
     if (!existing || item.savedAt >= existing.savedAt) byId.set(item.id, item)
   }
-  const items = [...byId.values()].slice(0, MAX_SAVED_PLAYLISTS)
-  const health = items.length === result.items.length ? result.health : 'recovered'
+  // Entri lagu satuan dari versi lama dibuang diam-diam (bukan data rusak); tertulis bersih pada simpanan berikutnya.
+  const items = [...byId.values()].filter((item) => item.source !== 'search').slice(0, MAX_SAVED_PLAYLISTS)
+  const health = byId.size === result.items.length ? result.health : 'recovered'
   return { items, health }
 }
 
@@ -243,7 +244,7 @@ export function writePrefs(prefs: LibraryPrefs): WriteOutcome {
 
 export type UpsertResult =
   | { ok: true; list: SavedPlaylist[] }
-  | { ok: false; reason: 'limit' | 'invalid' }
+  | { ok: false; reason: 'limit' | 'invalid' | 'single' }
 
 /**
  * Menyimpan (atau memperbarui) playlist. Playlist dengan ID yang sama diganti di tempat;
@@ -255,6 +256,8 @@ export function upsertSavedPlaylist(
   playlist: PlaylistDetail,
   now: number = Date.now(),
 ): UpsertResult {
+  // Lagu satuan (hasil cari judul / tautan lagu) bukan playlist: tidak boleh masuk Koleksi, apa pun jalurnya.
+  if (playlist.source === 'search') return { ok: false, reason: 'single' }
   const entry = parseSavedPlaylist({
     id: playlist.id,
     url: playlist.url,
@@ -281,12 +284,7 @@ export function upsertSavedPlaylist(
  * walau dicari dengan kata kunci berbeda. Dipakai untuk status tombol dan pencegahan duplikat.
  */
 export function findSavedMatch(list: readonly SavedPlaylist[], playlist: PlaylistDetail): SavedPlaylist | undefined {
-  const byId = list.find((item) => item.id === playlist.id)
-  if (byId) return byId
-  const first = playlist.tracks[0]
-  if (playlist.source !== 'search' || !first) return undefined
-  const key = recentKey(first)
-  return list.find((item) => item.source === 'search' && item.tracks[0] && recentKey(item.tracks[0]) === key)
+  return list.find((item) => item.id === playlist.id)
 }
 
 /** Kembali ke bentuk `PlaylistDetail` (tanpa metadata Koleksi) untuk dipakai sebagai playlist aktif. */

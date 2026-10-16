@@ -269,3 +269,10 @@ Menu tahan-lama (menu lagu dan menu di panel antrean) bukan bagian dari state ro
 - Tersimpan di `localStorage` kunci `musicverse:my-playlists:v1` (`utils/myPlaylistStorage.ts`), terpisah dari Koleksi dan
   **tidak** kena batas 30 playlist Koleksi. Batas: 100 playlist, 1000 lagu per playlist, nama 60 karakter. Hanya metadata lagu
   yang disimpan (tanpa URL audio). Kuota penuh / penyimpanan terblokir: perubahan ditolak dengan pesan, tidak pura-pura berhasil.
+
+## Aturan Koleksi: lagu satuan tidak masuk
+
+Hasil cari judul dan tautan lagu (`source: 'search'`) adalah **lagu satuan**, bukan playlist, jadi **tidak bisa disimpan ke Koleksi** lewat jalur mana pun:
+tombol hati di pemutar dihapus, tombol "Simpan ke Koleksi" disembunyikan untuk lagu satuan, dan `upsertSavedPlaylist` menolak (`reason: 'single'`).
+Entri lagu satuan lama di penyimpanan dibuang diam-diam saat dibaca. Untuk menyimpan lagu satuan, pakai **Simpan ke playlist saya**.
+Riwayat "Baru diputar" tidak terpengaruh (itu riwayat, bukan Koleksi).

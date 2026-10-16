@@ -13,6 +13,8 @@ export function noticeMessage({ reason, action, title }: LibraryNotice): string 
       return `“${title}” tidak masuk ke Koleksi karena penyimpanan browser penuh. Hapus playlist lain, lalu simpan lagi.`
     case 'limit':
       return `Koleksi sudah berisi ${MAX_SAVED_PLAYLISTS} item, jadi “${title}” belum disimpan. Hapus salah satu untuk menyimpannya.`
+    case 'single':
+      return `“${title}” adalah lagu satuan, jadi tidak bisa disimpan ke Koleksi. Simpan lewat “Simpan ke playlist saya”.`
     case 'invalid':
       return `“${title}” tidak bisa disimpan karena datanya tidak valid.`
     case 'unavailable':
