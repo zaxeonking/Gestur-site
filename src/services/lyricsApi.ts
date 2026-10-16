@@ -1,6 +1,7 @@
 import type { PlaylistTrack } from '../types/spotify'
 import { parseDuration } from '../utils/formatTime'
 import { parseLrc, type LyricLine } from '../utils/lrc'
+import { stripArtistPrefix } from '../utils/trackTitle'
 
 /**
  * Lirik dari LRCLIB (https://lrclib.net): gratis, tanpa kunci API. Dipanggil langsung dari browser;
@@ -51,11 +52,14 @@ export function primaryArtist(artists: string): string {
   return artists.split(/\s*(?:,|&|;|\bfeat\.?|\bft\.?|\bx\b)\s*/i)[0]?.trim() ?? ''
 }
 
+/** Akhiran setelah " - " yang hanya keterangan versi, bukan bagian judul. */
+const VERSION_SUFFIX = /\s+-\s+(?:.*\b)?(?:remaster(?:ed)?|live|version|edit|mix|radio|acoustic|mono|stereo|deluxe|bonus|anniversary|single|from|ost|soundtrack|feat\.?|ft\.?)\b.*$/i
+
 /** Judul tanpa "(feat. ...)", "[Remastered]" atau " - Remastered 2011" supaya pencarian lebih longgar. */
 export function cleanTitle(title: string): string {
   return title
     .replace(/\s*[([][^)\]]*[)\]]/g, '')
-    .replace(/\s+-\s+.*$/, '')
+    .replace(VERSION_SUFFIX, '')
     .trim()
 }
 
@@ -200,8 +204,8 @@ function stripCredits(lrc: string): string {
     .join('\n')
 }
 
-async function lrclibRecords(track: PlaylistTrack, title: string, artist: string, durationS: number | null, signal: AbortSignal): Promise<LrclibRecord[]> {
-  const exactParams: Record<string, string> = { track_name: track.title, artist_name: track.artists }
+async function lrclibRecords(track: PlaylistTrack, baseTitle: string, title: string, artist: string, durationS: number | null, signal: AbortSignal): Promise<LrclibRecord[]> {
+  const exactParams: Record<string, string> = { track_name: baseTitle, artist_name: track.artists }
   if (track.album) exactParams.album_name = track.album
   if (durationS) exactParams.duration = String(Math.round(durationS))
   const settled = await Promise.allSettled([
@@ -304,10 +308,12 @@ export async function fetchLyrics(track: PlaylistTrack, options: { signal: Abort
   const { signal } = options
   const durationS = parseDuration(track.duration)
   const artist = primaryArtist(track.artists)
-  const title = cleanTitle(track.title) || track.title
+  // Judul playlist sering "Artis - Judul": buang bagian artis, kalau tidak pencarian memakai nama artis sebagai judul.
+  const baseTitle = stripArtistPrefix(track.title, track.artists)
+  const title = cleanTitle(baseTitle) || baseTitle
 
   const jobs: Array<Promise<LrclibRecord[]>> = [
-    lrclibRecords(track, title, artist, durationS, signal),
+    lrclibRecords(track, baseTitle, title, artist, durationS, signal),
     neteaseRecords(title, artist, signal),
     ovhRecords(title, artist, signal),
   ]

@@ -2,6 +2,7 @@ import type { PlaybackInfo } from '../types/spotify'
 import { parseDuration } from './formatTime'
 import { extractTrackId } from './spotifyUrl'
 import { normalizeSearchText } from './trackSearch'
+import { stripArtistPrefix } from './trackTitle'
 
 /** Lagu di playlist yang dijadikan patokan. */
 export interface WantedTrack {
@@ -29,7 +30,8 @@ function artistNames(value: string): string[] {
 function titleScore(wanted: WantedTrack, info: PlaybackInfo): number | null {
   const got = tokens(info.title)
   if (got.length === 0) return null
-  const want = tokens(wanted.title)
+  // "Artis - Judul" -> "Judul": nama artis di judul playlist tidak boleh dihitung sebagai bagian judul.
+  const want = tokens(stripArtistPrefix(wanted.title, wanted.artists))
   if (want.length === 0) return null
   const wantSet = new Set(want)
   const artistTokens = new Set(tokens(wanted.artists))

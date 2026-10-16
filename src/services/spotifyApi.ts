@@ -7,6 +7,7 @@ import type {
   SpotifyApiTrack,
 } from '../types/spotify'
 import { scoreCandidate } from '../utils/matchTrack'
+import { stripArtistPrefix } from '../utils/trackTitle'
 import { extractSpotifyTrackLink, extractTrackId, isSafeHttpUrl, validateSpotifyPlaylistUrl } from '../utils/spotifyUrl'
 
 const DEFAULT_BASE_URL = 'https://api.nexadev.my.id'
@@ -637,7 +638,7 @@ export async function fetchPlaybackInfo(
   if (external?.aborted) throw new SpotifyApiError('aborted', 'Permintaan dibatalkan.')
 
   const link = extractSpotifyTrackLink(track.url ?? '')
-  const titleQuery = [track.title, track.artists?.split(/\s*[,&;]\s*/)[0]].filter(Boolean).join(' ')
+  const titleQuery = [stripArtistPrefix(track.title, track.artists ?? ''), track.artists?.split(/\s*[,&;]\s*/)[0]].filter(Boolean).join(' ')
   const sources: Source[] = []
   if (link) {
     sources.push({ name: 'kyzz', viaLink: true, run: (o) => requestDownload(link, o) })

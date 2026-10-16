@@ -121,7 +121,7 @@ export default function FullPlayer({ onClose, onOpenQueue }: { onClose: () => vo
         <div onTouchStart={onSwipeStart} onTouchEnd={onSwipeEnd} className="flex flex-1 items-center justify-center py-4">
           {showLyrics ? (
             <div className="h-[min(46dvh,30rem)] min-h-[16rem] w-full animate-lyrics-up">
-              <LyricsPanel state={lyrics} onRetry={retryLyrics} />
+              <LyricsPanel state={lyrics} onRetry={retryLyrics} trackKey={`${currentTrack.title}|${currentTrack.artists}`} />
             </div>
           ) : (
             <div className="w-[min(100%,38dvh,26rem)] shadow-2xl shadow-black/50">
