@@ -344,15 +344,22 @@ class AudioEngine {
     if (this.standbySource !== null && !this.isCrossfading()) this.releaseStandby()
   }
 
-  /** Lagu cadangan sudah cukup termuat untuk mulai tanpa jeda. */
-  isPreloadReady(url: string): boolean {
+  /** Durasi (detik) audio yang dimuat di elemen cadangan untuk `url`; null jika belum diketahui. */
+  preloadDuration(url: string): number | null {
     const standby = this.standby
-    return (
-      standby !== null &&
-      this.standbySource === url &&
-      !standby.error &&
-      standby.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA
-    )
+    if (!standby || this.standbySource !== url) return null
+    return Number.isFinite(standby.duration) && standby.duration > 0 ? standby.duration : null
+  }
+
+  /**
+   * Lagu cadangan sudah cukup termuat untuk mulai tanpa jeda. Dengan `lenient`, cukup bahwa sumbernya
+   * terpasang tanpa error (play() akan menunggu buffer sendiri), untuk perangkat yang tidak mem-buffer
+   * elemen yang belum diputar.
+   */
+  isPreloadReady(url: string, lenient = false): boolean {
+    const standby = this.standby
+    if (standby === null || this.standbySource !== url || standby.error) return false
+    return lenient || standby.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA
   }
 
   /**

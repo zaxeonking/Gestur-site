@@ -35,7 +35,7 @@ function titleScore(wanted: WantedTrack, info: PlaybackInfo): number | null {
   if (want.length === 0) return null
   const wantSet = new Set(want)
   const artistTokens = new Set(tokens(wanted.artists))
-  // Judul NexaDev berformat "Judul - Artis": token artis tidak dihitung sebagai kelebihan.
+  // Judul API cadangan berformat "Judul - Artis": token artis tidak dihitung sebagai kelebihan.
   const gotTitleOnly = got.filter((t) => !artistTokens.has(t) || wantSet.has(t))
   const hit = want.filter((t) => got.includes(t)).length
   const coverage = hit / want.length

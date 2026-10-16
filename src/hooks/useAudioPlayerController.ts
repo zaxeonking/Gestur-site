@@ -14,6 +14,7 @@ import type {
 } from '../types/player'
 import type { PlayAllHandler, PlaybackInfo, PlaylistTrack, PlayTrackHandler } from '../types/spotify'
 import { clearPlayerSession, loadPlayerSession, savePlayerPosition, savePlayerQueue } from '../utils/playerSession'
+import { isLikelyClip } from '../utils/clipDetect'
 import { readJson, writeJson } from '../utils/safeStorage'
 import {
   createShuffleOrder,
@@ -61,10 +62,17 @@ interface StartOptions {
 interface Preload {
   trackId: string
   index: number
-  status: 'resolving' | 'ready'
+  status: 'resolving' | 'ready' | 'failed'
   info: PlaybackInfo | null
   controller: AbortController
+  /** Berapa kali pengambilan URL sudah dicoba (gagal sesaat tidak boleh membatalkan crossfade). */
+  attempts: number
+  /** Waktu (ms epoch) paling awal untuk mencoba lagi setelah gagal. */
+  retryAt: number
 }
+
+const PRELOAD_MAX_ATTEMPTS = 3
+const PRELOAD_RETRY_DELAY_MS = 2_500
 
 /** Seek hanya bermakna saat audio sudah memuat dan belum selesai. */
 const SEEKABLE_STATUSES: PlaybackStatus[] = ['playing', 'buffering', 'paused']
@@ -77,6 +85,8 @@ function errorMessage(code: PlayerErrorCode): string {
       return 'Tidak dapat mengambil audio untuk lagu ini. Coba lagi.'
     case 'no_audio':
       return 'Server tidak menyediakan audio untuk lagu ini.'
+    case 'clip_only':
+      return 'Server hanya menyediakan cuplikan (±30 detik) untuk lagu ini, bukan audio penuh. Coba lagi nanti.'
     case 'blocked':
       return 'Browser memblokir pemutaran. Tekan tombol Play sekali lagi.'
     case 'network':
@@ -99,7 +109,7 @@ const DEFAULT_CROSSFADE_S = 5
  * Lagu berikutnya mulai dimuat sebanyak ini (detik) SEBELUM crossfade dimulai, supaya URL sempat diambil
  * dan audionya ter-buffer. Tanpa ini crossfade harus menunggu jaringan dan muncul jeda.
  */
-const PRELOAD_LEAD_S = 20
+const PRELOAD_LEAD_S = 30
 /** Sleep timer "akhir lagu": volume mulai mengecil pada sekian detik terakhir lagu. */
 const TRACK_END_FADE_S = 8
 
@@ -224,6 +234,10 @@ export function useAudioPlayerController(playlistTracks: PlaylistTrack[]) {
   const restoredRef = useRef(boot !== null)
   // Detik tujuan setelah audio termuat (lanjut dari posisi tersimpan); null = mulai dari awal.
   const resumeAtRef = useRef<number | null>(null)
+  /** Dipanggil saat durasi audio yang sebenarnya diketahui; mendeteksi klip 30 detik lalu ganti sumber. */
+  const clipGuardRef = useRef<((duration: number) => void) | null>(null)
+  /** Id lagu berikutnya yang crossfade-nya sudah gagal (play() ditolak): jangan dicoba berulang tiap timeupdate. */
+  const crossfadeGaveUpRef = useRef<string | null>(null)
   const lastPositionSaveRef = useRef(0)
   // Diisi setelah `persistPosition` didefinisikan; dipanggil dari handler event audio.
   const persistPositionRef = useRef<(force: boolean, position?: number) => void>(() => {})
@@ -320,6 +334,13 @@ export function useAudioPlayerController(playlistTracks: PlaylistTrack[]) {
         case 'loadedmetadata':
         case 'progress':
         case 'seeked':
+          if (
+            (event.type === 'loadedmetadata' || event.type === 'durationchange') &&
+            event.duration !== null &&
+            (status === 'loading' || status === 'playing' || status === 'buffering')
+          ) {
+            clipGuardRef.current?.(event.duration)
+          }
           if (event.type === 'timeupdate') {
             crossfadeStepRef.current(event)
             persistPositionRef.current(false, event.currentTime)
@@ -453,22 +474,53 @@ export function useAudioPlayerController(playlistTracks: PlaylistTrack[]) {
       })
       updateTime(() => (resumeAtRef.current === null ? initialTime : { ...initialTime, currentTime: resumeAtRef.current }))
 
-      void (async () => {
-        // Setiap permintaan play selalu mengambil mp3_url terbaru (tanpa cache).
+      clipGuardRef.current = null
+      crossfadeGaveUpRef.current = null
+      const expectedDuration = parseDurationText(track.duration)
+      // API yang terbukti memberi klip ~30 detik untuk lagu ini; dilewati pada percobaan berikutnya.
+      const avoid: Array<'kyzz' | 'cadangan'> = []
+
+      const attempt = async (): Promise<void> => {
+        // Setiap permintaan play selalu mengambil URL audio terbaru (tanpa cache).
         let info: PlaybackInfo
         try {
-          info = await fetchPlaybackInfo(track, { signal: controller.signal })
+          info = await fetchPlaybackInfo(track, { signal: controller.signal, avoid })
         } catch (error) {
           if (isStale()) return
           if (error instanceof SpotifyApiError) {
             if (error.code === 'aborted') return
-            fail(error.code === 'no_audio' ? 'no_audio' : 'resolve_failed', error.message)
+            if (error.code === 'clip_only' || avoid.length > 0) {
+              // Sumber yang tersisa gagal setelah klip ditolak: jangan memutar klip, beri tahu pengguna.
+              fail('clip_only')
+            } else {
+              fail(error.code === 'no_audio' ? 'no_audio' : 'resolve_failed', error.message)
+            }
           } else {
-            fail('resolve_failed')
+            fail(avoid.length > 0 ? 'clip_only' : 'resolve_failed')
           }
           return
         }
         if (isStale()) return
+
+        // Durasi file audio yang sebenarnya baru diketahui setelah metadata dimuat. Jika hanya klip
+        // (≤35 dtk untuk lagu yang jauh lebih panjang), buang dan coba API lain.
+        clipGuardRef.current = (duration) => {
+          if (isStale() || !isLikelyClip(duration, expectedDuration)) return
+          clipGuardRef.current = null
+          console.warn(
+            `[MusicVerse] Audio dari ${info.apiSource ?? 'sumber tak dikenal'} hanya ${duration.toFixed(1)} dtk ` +
+              `(seharusnya ~${expectedDuration} dtk): dianggap cuplikan, mencoba sumber lain.`,
+          )
+          clearStartTimer()
+          if (!info.apiSource || avoid.includes(info.apiSource)) {
+            fail('clip_only')
+            return
+          }
+          avoid.push(info.apiSource)
+          commit({ status: 'resolving', playbackInfo: null, error: null })
+          audioEngine.stop()
+          void attempt()
+        }
 
         // URL sudah ada, tetapi BELUM tentu bisa diputar: tetap "loading" sampai event `playing`.
         commit({ status: 'loading', playbackInfo: info })
@@ -485,7 +537,9 @@ export function useAudioPlayerController(playlistTracks: PlaylistTrack[]) {
           if (code === 'aborted') return // dijeda/diganti saat play() menunggu
           fail(code)
         }
-      })()
+      }
+
+      void attempt()
     },
     [clearStartTimer, commit, discardPreload, fail, updateTime],
   )
@@ -749,6 +803,7 @@ export function useAudioPlayerController(playlistTracks: PlaylistTrack[]) {
       const nextIndex = getNextIndex(queue, currentIndex, shuffleOrder)
       const nextTrack = nextIndex === null ? null : queue[nextIndex]
       if (nextIndex === null || !nextTrack) return // antrean habis: alur normal (berhenti / putar ulang)
+      if (crossfadeGaveUpRef.current === nextTrack.id) return
 
       let preload = preloadRef.current
       // Daftar "Berikutnya" berubah sejak dimuat: buang dan muat yang baru.
@@ -756,14 +811,12 @@ export function useAudioPlayerController(playlistTracks: PlaylistTrack[]) {
         discardPreload()
         preload = null
       }
-      if (!preload) {
-        if (audioEngine.isCrossfading()) return
-        const controller = new AbortController()
-        const entry: Preload = { trackId: nextTrack.id, index: nextIndex, status: 'resolving', info: null, controller }
-        preloadRef.current = entry
+      const startFetch = (entry: Preload) => {
+        entry.attempts += 1
+        entry.status = 'resolving'
         void (async () => {
           try {
-            const info = await fetchPlaybackInfo(nextTrack, { signal: controller.signal })
+            const info = await fetchPlaybackInfo(nextTrack, { signal: entry.controller.signal })
             if (preloadRef.current !== entry) return
             if (!audioEngine.preload(info.audioUrl)) {
               preloadRef.current = null // belum bisa dipakai; dicoba lagi pada timeupdate berikutnya
@@ -771,15 +824,49 @@ export function useAudioPlayerController(playlistTracks: PlaylistTrack[]) {
             }
             entry.info = info
             entry.status = 'ready'
-          } catch {
-            // Gagal (jaringan / tidak ada audio): biarkan alur normal yang menangani saat lagu selesai.
-            // Entri dibiarkan 'resolving' agar tidak dicoba berulang tiap timeupdate untuk lagu ini.
+          } catch (error) {
+            if (preloadRef.current !== entry) return
+            if (error instanceof SpotifyApiError && error.code === 'aborted') return
+            // Gagal sesaat (rate limit / timeout) cukup sering terjadi: coba lagi beberapa kali selama
+            // masih ada waktu, baru menyerah ke alur normal (lagu berikutnya mulai saat lagu ini selesai).
+            console.warn(`[MusicVerse] Preload crossfade gagal (percobaan ${entry.attempts}/${PRELOAD_MAX_ATTEMPTS}):`, error)
+            entry.status = 'failed'
+            entry.retryAt = Date.now() + PRELOAD_RETRY_DELAY_MS
           }
         })()
+      }
+      if (!preload) {
+        if (audioEngine.isCrossfading()) return
+        const controller = new AbortController()
+        const entry: Preload = {
+          trackId: nextTrack.id,
+          index: nextIndex,
+          status: 'resolving',
+          info: null,
+          controller,
+          attempts: 0,
+          retryAt: 0,
+        }
+        preloadRef.current = entry
+        startFetch(entry)
+        return
+      }
+      if (preload.status === 'failed') {
+        if (preload.attempts < PRELOAD_MAX_ATTEMPTS && Date.now() >= preload.retryAt && remaining > 1) startFetch(preload)
         return
       }
       if (preload.status !== 'ready' || !preload.info || remaining > fade) return
-      if (!audioEngine.isPreloadReady(preload.info.audioUrl)) return
+      // Saat waktunya tiba, mulai crossfade walau lagu cadangan belum ter-buffer penuh: browser mobile sering
+      // mengabaikan preload="auto", sehingga syarat "siap penuh" tidak pernah terpenuhi dan crossfade batal.
+      if (!audioEngine.isPreloadReady(preload.info.audioUrl, true)) return
+      // Lagu berikutnya ternyata hanya klip ~30 detik: jangan di-crossfade. Entri dibiarkan 'resolving'
+      // (tidak dicoba lagi tiap timeupdate); saat lagu ini selesai, startPlayback mengambil sumber yang benar.
+      if (isLikelyClip(audioEngine.preloadDuration(preload.info.audioUrl), parseDurationText(nextTrack.duration))) {
+        preload.status = 'resolving'
+        preload.info = null
+        audioEngine.clearPreload()
+        return
+      }
 
       crossfadingRef.current = true
       const info = preload.info
@@ -788,7 +875,12 @@ export function useAudioPlayerController(playlistTracks: PlaylistTrack[]) {
         crossfadingRef.current = false
         if (requestIdRef.current !== requestId || preloadRef.current !== preload) return
         preloadRef.current = null
-        if (!switched) return // play() ditolak: lagu lama jalan terus, alur normal saat selesai
+        if (!switched) {
+          // play() ditolak: lagu lama jalan terus, alur normal saat selesai (tanpa mencoba ulang tiap timeupdate).
+          crossfadeGaveUpRef.current = nextTrack.id
+          return
+        }
+        crossfadeGaveUpRef.current = null
         // Lagu baru sudah terdengar: sinkronkan state (urutan acak dipertahankan, antrean sama).
         replayedRef.current = false
         setRepeatingOnce(false)

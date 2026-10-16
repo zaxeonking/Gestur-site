@@ -26,6 +26,7 @@ export type PlaybackStatus =
 export type PlayerErrorCode =
   | 'resolve_failed'
   | 'no_audio'
+  | 'clip_only'
   | 'blocked'
   | 'network'
   | 'unsupported'

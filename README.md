@@ -62,8 +62,10 @@ Tombol X di form menghapus playlist (termasuk cache).
 
 Urutan sumber audio saat memutar lagu:
 1. API download `app.kyzznekoo.my.id` (`/api/download/spotify?url=`) → `data.url` (audio).
-2. Cadangan: `GET {BASE}/api/spotify?url={ENCODED_URL_LAGU}` (NexaDev) → `data.url` (audio penuh; `data.preview` = cuplikan 30 dtk, TIDAK PERNAH dipakai; `url` kosong = error "tidak ada audio").
-3. Cadangan terakhir (kurang akurat): `GET {BASE}/api/spotifyplay?q={encodeURIComponent(judul)}` → `data.mp3_url`.
+2. Cadangan: `GET {BASE}/api/spotify?url={ENCODED_URL_LAGU}` → `data.url` (audio penuh; `data.preview` = cuplikan 30 dtk, TIDAK PERNAH dipakai; `url` kosong = error "tidak ada audio").
+3. Tanpa tautan lagu: `GET {BASE}/api/spotifyplay?q=...` hanya untuk MENEMUKAN tautan lagu; `data.mp3_url` (cuplikan ±30 dtk) TIDAK dipakai sebagai audio.
+
+**Deteksi klip.** `data.url` dari API kadang tetap klip ±30 dtk. Setelah `loadedmetadata`, durasi file audio yang sebenarnya dibandingkan dengan durasi lagu di playlist (`utils/clipDetect.ts`: ≤35 dtk dan selisih ≥20 dtk = klip). Klip dibuang, API itu dilewati, lalu sumber lain dicoba; jika semua hanya klip, status `error` dengan kode `clip_only`. Pengecekan yang sama berlaku untuk preload crossfade.
 
 - **Satu engine.** `services/audioEngine.ts` memegang satu `HTMLAudioElement`. `AudioPlayerProvider`
   (di dalam `PlaylistProvider`) memanggil `useAudioPlayerController` sekali. Komponen cukup memakai
@@ -72,7 +74,7 @@ Urutan sumber audio saat memutar lagu:
   `togglePlayPause()`, `cleanup()`.
 - **Status** hanya berubah lewat event audio: `idle → resolving → loading → playing ⇄ buffering / paused → ended`, atau `error`.
   `playing` baru diisi saat event `playing` diterima; respons `status: true` atau `play()` yang diterima belum cukup.
-- **URL selalu baru.** Setiap `playTrack` meminta `mp3_url` ke endpoint; tidak ada cache. Dari `ended`/`error`,
+- **URL selalu baru.** Setiap `playTrack` meminta URL audio baru ke API; tidak ada cache. Dari `ended`/`error`,
   `togglePlayPause()` juga mengambil URL baru.
 - **Error:** respons gagal / `mp3_url` kosong / bukan http(s), pemutaran diblokir browser, `MediaError` jaringan,
   dekode, atau format/URL tidak didukung (termasuk tautan kedaluwarsa dan halaman unduhan), serta batas 30 detik

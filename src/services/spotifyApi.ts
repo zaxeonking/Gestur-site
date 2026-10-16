@@ -13,7 +13,7 @@ import { extractSpotifyTrackLink, extractTrackId, isSafeHttpUrl, validateSpotify
 const DEFAULT_BASE_URL = 'https://api.nexadev.my.id'
 const PLAYLIST_PATH = '/api/spotifypl'
 const PLAYBACK_PATH = '/api/spotifyplay'
-/** API cadangan (NexaDev) untuk memutar lagu lewat tautan Spotify-nya, dipakai jika API download (kyzz) gagal. */
+/** API cadangan untuk memutar lagu lewat tautan Spotify-nya, dipakai jika API download (kyzz) gagal. */
 const TRACK_PATH = '/api/spotify'
 
 export const DEFAULT_TIMEOUT_MS = 15_000
@@ -25,7 +25,7 @@ function getBaseUrl(): string {
   return (configured || DEFAULT_BASE_URL).replace(/\/+$/, '')
 }
 
-/* API download berbasis URL lagu (UTAMA; akurat: memutar persis lagu yang ditautkan). NexaDev jadi cadangannya. */
+/* API download berbasis URL lagu (UTAMA; akurat: memutar persis lagu yang ditautkan). API cadangan jadi cadangannya. */
 const DEFAULT_DOWNLOAD_BASE_URL = 'https://app.kyzznekoo.my.id'
 const DOWNLOAD_PATH = '/api/download/spotify'
 /** Nama parameter query untuk tautan lagu. ASUMSI: `url`. Ubah di sini jika API memakai nama lain. */
@@ -46,6 +46,7 @@ export type SpotifyApiErrorCode =
   | 'invalid_url'
   | 'invalid_query'
   | 'no_audio'
+  | 'clip_only'
   | 'timeout'
   | 'aborted'
   | 'network'
@@ -167,6 +168,8 @@ export interface FetchPlaylistOptions {
   signal?: AbortSignal
   /** Batas waktu permintaan dalam milidetik. Default 15 detik. */
   timeoutMs?: number
+  /** API yang sudah terbukti memberi klip/cuplikan untuk lagu ini; dilewati. */
+  avoid?: ReadonlyArray<'kyzz' | 'cadangan'>
 }
 
 export function buildPlaylistEndpoint(normalizedPlaylistUrl: string): string {
@@ -464,6 +467,7 @@ export function parseDownloadResponse(body: unknown, trackUrl: string): Playback
     cover: readString(meta.image),
     spotifyUrl: trackUrl,
     audioUrl,
+    apiSource: 'kyzz',
   }
 }
 
@@ -479,7 +483,7 @@ async function requestDownload(trackUrl: string, options: FetchPlaylistOptions =
 }
 
 /* ------------------------------------------------------------------ */
-/* API cadangan NexaDev: /api/spotify?url={tautan lagu}                */
+/* API cadangan: /api/spotify?url={tautan lagu}                */
 /* ------------------------------------------------------------------ */
 
 export function buildTrackEndpoint(trackUrl: string): string {
@@ -514,7 +518,7 @@ export function parseTrackResponse(body: unknown, trackUrl: string): PlaybackInf
     throw new SpotifyApiError('invalid_response', 'URL audio dari server tidak valid.')
   }
 
-  // Judul NexaDev berformat "Judul - Artis"; pakai apa adanya (UI sudah punya judul dari playlist).
+  // Judul API cadangan berformat "Judul - Artis"; pakai apa adanya (UI sudah punya judul dari playlist).
   return {
     title: readString(data.title),
     artist: readString(data.artist),
@@ -523,10 +527,11 @@ export function parseTrackResponse(body: unknown, trackUrl: string): PlaybackInf
     cover: readString(data.thumbnail),
     spotifyUrl: trackUrl,
     audioUrl: fullUrl,
+    apiSource: 'cadangan',
   }
 }
 
-/** Meminta audio + metadata satu lagu ke API cadangan NexaDev (selalu permintaan baru). */
+/** Meminta audio + metadata satu lagu ke API cadangan (selalu permintaan baru). */
 async function requestTrack(trackUrl: string, options: FetchPlaylistOptions = {}): Promise<PlaybackInfo> {
   const { signal, timeoutMs = PLAYBACK_TIMEOUT_MS } = options
   const body = await requestJson(buildTrackEndpoint(trackUrl), {
@@ -538,24 +543,33 @@ async function requestTrack(trackUrl: string, options: FetchPlaylistOptions = {}
 }
 
 /**
- * Mengambil info audio lewat tautan lagu: API download (kyzz) dulu, lalu NexaDev (cadangan).
+ * Mengambil info audio lewat tautan lagu: API download (kyzz) dulu, lalu API cadangan.
  * Pembatalan (`aborted`) tidak pernah memicu cadangan.
  */
 async function requestByLink(trackUrl: string, options: FetchPlaylistOptions = {}): Promise<PlaybackInfo> {
+  const avoid = options.avoid ?? []
+  const skipKyzz = avoid.includes('kyzz')
+  const skipBackup = avoid.includes('cadangan')
+  if (skipKyzz && skipBackup) {
+    throw new SpotifyApiError('clip_only', 'Semua sumber hanya menyediakan cuplikan lagu, bukan audio penuh.')
+  }
   // kyzz (audio penuh) dicoba sampai 3 kali sebelum pindah ke cadangan, karena permintaan kedua dan
   // seterusnya kadang gagal sesaat (rate limit/timeout).
   let lastError: unknown
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
-    try {
-      return await requestDownload(trackUrl, options)
-    } catch (error) {
-      if (error instanceof SpotifyApiError && error.code === 'aborted') throw error
-      lastError = error
-      console.warn(`[MusicVerse] API download (kyzz) gagal (percobaan ${attempt}/3):`, error)
-      if (attempt < 3) await new Promise((r) => setTimeout(r, 600 * attempt))
+  if (!skipKyzz) {
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        return await requestDownload(trackUrl, options)
+      } catch (error) {
+        if (error instanceof SpotifyApiError && error.code === 'aborted') throw error
+        lastError = error
+        console.warn(`[MusicVerse] API download (kyzz) gagal (percobaan ${attempt}/3):`, error)
+        if (attempt < 3) await new Promise((r) => setTimeout(r, 600 * attempt))
+      }
     }
   }
-  console.warn('[MusicVerse] Memakai NexaDev /spotify (cadangan):', lastError)
+  if (skipBackup) throw lastError
+  console.warn('[MusicVerse] Memakai API cadangan /spotify:', lastError)
   return requestTrack(trackUrl, options)
 }
 
@@ -597,7 +611,7 @@ export async function searchTrackByTitle(
 ): Promise<PlaybackInfo> {
   // Endpoint judul (spotifyplay) hanya dipakai untuk menemukan lagu + tautannya. `mp3_url`-nya
   // adalah cuplikan ~30 detik, jadi TIDAK dipakai: audio selalu diambil ulang lewat tautan lagu
-  // (API download kyzz -> NexaDev /api/spotify), yaitu audio penuh.
+  // (API download kyzz -> API cadangan /api/spotify), yaitu audio penuh.
   const found = await requestPlayback(query, options)
   const link = extractSpotifyTrackLink(found.spotifyUrl ?? '')
   if (!link) throw new SpotifyApiError('no_audio', 'Tautan lagu tidak ditemukan, audio penuh tidak bisa diambil.')
@@ -616,7 +630,7 @@ export async function searchTrackByTitle(
   return info
 }
 
-/** Memuat satu lagu lewat tautan Spotify-nya (akurat). Urutan: API download (kyzz) → NexaDev /spotify. */
+/** Memuat satu lagu lewat tautan Spotify-nya (akurat). Urutan: API download (kyzz) → API cadangan /spotify. */
 export async function searchTrackByLink(
   trackUrl: string,
   options: FetchPlaylistOptions = {},
@@ -641,7 +655,7 @@ interface Source {
 
 /**
  * Info playback untuk pemutaran. SEMUA sumber dipanggil bersamaan:
- *  - kyzz (tautan lagu), NexaDev /api/spotify (tautan lagu), NexaDev /api/spotifyplay (judul + artis).
+ *  - kyzz (tautan lagu), API cadangan /api/spotify (tautan lagu), /api/spotifyplay (judul + artis).
  * Hasilnya dinilai terhadap data lagu di playlist (judul, artis, durasi, tautan) dan dipakai yang paling
  * cocok. Hasil yang pasti cocok langsung dipakai; jika tidak, sumber lain ditunggu hingga
  * COMPARE_GRACE_MS setelah hasil pertama. Hasil pencarian yang baru dibuat (sekali pakai) dipakai lebih dulu.
@@ -650,7 +664,8 @@ export async function fetchPlaybackInfo(
   track: { title: string; url?: string; artists?: string; duration?: string },
   options: FetchPlaylistOptions = {},
 ): Promise<PlaybackInfo> {
-  const handed = takeHandoff(handoffKey(track.title, track.url))
+  // Hasil hand-off bisa saja klip yang baru ditolak; saat ada API yang dihindari, selalu ambil baru.
+  const handed = options.avoid?.length ? null : takeHandoff(handoffKey(track.title, track.url))
   if (handed) return handed
 
   const external = options.signal
@@ -660,8 +675,8 @@ export async function fetchPlaybackInfo(
   const titleQuery = [stripArtistPrefix(track.title, track.artists ?? ''), track.artists?.split(/\s*[,&;]\s*/)[0]].filter(Boolean).join(' ')
   const sources: Source[] = []
   if (link) {
-    // Berurutan, bukan paralel: kyzz (audio penuh) diutamakan; NexaDev hanya jika kyzz gagal.
-    // Sebelumnya keduanya paralel dan NexaDev bisa menang dengan audio ~30 detik.
+    // Berurutan, bukan paralel: kyzz (audio penuh) diutamakan; API cadangan hanya jika kyzz gagal.
+    // Sebelumnya keduanya paralel dan API cadangan bisa menang dengan audio ~30 detik.
     sources.push({ name: 'kyzz', viaLink: true, run: (o) => requestByLink(link, o) })
   }
   if (!link) {
