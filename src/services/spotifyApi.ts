@@ -20,9 +20,16 @@ export const DEFAULT_TIMEOUT_MS = 15_000
 /** Endpoint play mencari lagu di sisi server, jadi diberi waktu lebih longgar. */
 export const PLAYBACK_TIMEOUT_MS = 30_000
 
+/** Nilai VITE_API_BASE_URL mentah (tanpa slash di akhir). */
+function getConfiguredBaseUrl(): string {
+  return (import.meta.env?.VITE_API_BASE_URL?.trim() || '').replace(/\/+$/, '')
+}
+
+/** API playlist selalu langsung ke api.nexadev.my.id; nilai proxy `/nexa` diabaikan. */
 function getBaseUrl(): string {
-  const configured = import.meta.env?.VITE_API_BASE_URL?.trim()
-  return (configured || DEFAULT_BASE_URL).replace(/\/+$/, '')
+  const configured = getConfiguredBaseUrl()
+  if (!configured || configured === '/nexa') return DEFAULT_BASE_URL
+  return configured
 }
 
 /* API download berbasis URL lagu (UTAMA; akurat: memutar persis lagu yang ditautkan). API cadangan jadi cadangannya. */
@@ -35,7 +42,7 @@ function getDownloadBaseUrl(): string {
   const configured = import.meta.env?.VITE_DOWNLOAD_API_BASE_URL?.trim()
   if (configured) return configured.replace(/\/+$/, '')
   // Jika API utama dipasang lewat proxy (/nexa), API download otomatis ikut lewat proxy (/kyzz).
-  return getBaseUrl() === '/nexa' ? '/kyzz' : DEFAULT_DOWNLOAD_BASE_URL
+  return getConfiguredBaseUrl() === '/nexa' ? '/kyzz' : DEFAULT_DOWNLOAD_BASE_URL
 }
 
 /* ------------------------------------------------------------------ */
