@@ -1,5 +1,5 @@
 import { AlertCircle, ChevronDown, FolderPlus, Mic2 } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type TouchEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type TouchEvent } from 'react'
 import { useLibrary } from '../../context/LibraryContext'
 import { useTrackMenu } from '../../context/TrackMenuContext'
 import { useAudioPlayer } from '../../hooks/useAudioPlayer'
@@ -59,6 +59,143 @@ export default function FullPlayer({ onClose, onOpenQueue }: { onClose: () => vo
   }, [currentTrack, playbackInfo])
   const { state: lyrics, retry: retryLyrics } = useLyrics(lyricsTrack, showLyrics)
 
+  // Tutup dengan animasi: pemutar meluncur turun ke mini player, baru riwayat dimundurkan.
+  const onCloseRef = useRef(onClose)
+  useEffect(() => {
+    onCloseRef.current = onClose
+  }, [onClose])
+  const closingRef = useRef(false)
+  const animateClose = useCallback(() => {
+    const el = dialogRef.current
+    if (closingRef.current) return
+    closingRef.current = true
+    if (!el) {
+      onCloseRef.current()
+      return
+    }
+    el.style.animation = 'none'
+    el.style.transformOrigin = 'top center'
+    el.style.transition = 'transform 280ms cubic-bezier(0.5,0,0.75,0), border-radius 280ms, opacity 240ms ease-in 60ms'
+    el.style.borderRadius = '28px'
+    el.style.transform = `translate3d(0, ${window.innerHeight}px, 0) scale(0.92)`
+    el.style.opacity = '0.6'
+    window.setTimeout(() => onCloseRef.current(), 250)
+  }, [])
+
+  // Seret ke bawah dari mana saja (selama konten di posisi paling atas) = tutup. Pakai event sentuh
+  // native karena touchmove harus bisa di-preventDefault agar halaman tidak ikut tergulung.
+  const ready = now !== null && currentTrack !== null
+  useEffect(() => {
+    const el = dialogRef.current
+    if (!el) return
+    const CLOSE_PX = 120
+    let startX = 0
+    let startY = 0
+    let lastY = 0
+    let lastT = 0
+    let velocity = 0
+    let tracking = false
+    let dragging = false
+    let crossed = false
+
+    const blocked = (target: EventTarget | null) => {
+      if (!(target instanceof HTMLElement)) return false
+      // Sheet/dialog bersarang (timer, crossfade) punya gesturnya sendiri.
+      const nested = target.closest('[role="dialog"]')
+      if (nested && nested !== el) return true
+      let node: HTMLElement | null = target
+      while (node) {
+        if (node.matches('input[type="range"]')) return true
+        if (node.scrollTop > 0) {
+          const oy = getComputedStyle(node).overflowY
+          if (oy === 'auto' || oy === 'scroll') return true
+        }
+        if (node === el) break
+        node = node.parentElement
+      }
+      return false
+    }
+
+    const springBack = () => {
+      el.style.transition = 'transform 380ms cubic-bezier(0.34,1.56,0.64,1), border-radius 380ms, opacity 200ms'
+      el.style.transform = ''
+      el.style.borderRadius = ''
+      el.style.opacity = ''
+    }
+
+    const onStart = (event: globalThis.TouchEvent) => {
+      const t = event.touches[0]
+      tracking = event.touches.length === 1 && !!t && !closingRef.current && !blocked(event.target)
+      dragging = false
+      crossed = false
+      if (!tracking || !t) return
+      startX = t.clientX
+      startY = t.clientY
+      lastY = t.clientY
+      lastT = event.timeStamp
+      velocity = 0
+    }
+
+    const onMove = (event: globalThis.TouchEvent) => {
+      const t = event.touches[0]
+      if (!tracking || !t) return
+      const dx = t.clientX - startX
+      const dy = t.clientY - startY
+      if (!dragging) {
+        if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return
+        // Hanya gerakan ke bawah yang dominan vertikal; selain itu biarkan scroll/gestur lain.
+        if (dy < 0 || Math.abs(dx) > Math.abs(dy) || el.scrollTop > 0) {
+          tracking = false
+          return
+        }
+        dragging = true
+        el.style.animation = 'none'
+        el.style.transformOrigin = 'top center'
+      }
+      if (event.cancelable) event.preventDefault()
+      const dt = event.timeStamp - lastT
+      if (dt > 0) velocity = (t.clientY - lastY) / dt
+      lastY = t.clientY
+      lastT = event.timeStamp
+      const pull = Math.max(0, dy - 8)
+      const p = Math.min(pull / 320, 1)
+      el.style.transition = 'none'
+      el.style.transform = `translate3d(0, ${pull}px, 0) scale(${1 - p * 0.07})`
+      el.style.borderRadius = `${Math.min(pull / 4, 28)}px`
+      const over = pull > CLOSE_PX
+      if (over !== crossed) {
+        crossed = over
+        if (over) navigator.vibrate?.(10)
+      }
+    }
+
+    const onEnd = (event: globalThis.TouchEvent, cancelled: boolean) => {
+      if (!tracking || !dragging) {
+        tracking = false
+        return
+      }
+      tracking = false
+      dragging = false
+      const t = event.changedTouches[0]
+      const pull = t ? t.clientY - startY - 8 : 0
+      if (!cancelled && (pull > CLOSE_PX || (velocity > 0.7 && pull > 40))) animateClose()
+      else springBack()
+    }
+    const onTouchEnd = (event: globalThis.TouchEvent) => onEnd(event, false)
+    const onTouchCancel = (event: globalThis.TouchEvent) => onEnd(event, true)
+
+    el.addEventListener('touchstart', onStart, { passive: true })
+    el.addEventListener('touchmove', onMove, { passive: false })
+    el.addEventListener('touchend', onTouchEnd)
+    el.addEventListener('touchcancel', onTouchCancel)
+    return () => {
+      el.removeEventListener('touchstart', onStart)
+      el.removeEventListener('touchmove', onMove)
+      el.removeEventListener('touchend', onTouchEnd)
+      el.removeEventListener('touchcancel', onTouchCancel)
+    }
+  }, [ready, animateClose])
+
   // Fokus masuk ke dialog, scroll halaman dikunci, fokus dikembalikan saat ditutup.
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null
@@ -74,7 +211,7 @@ export default function FullPlayer({ onClose, onOpenQueue }: { onClose: () => vo
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Escape') {
       event.stopPropagation()
-      onClose()
+      animateClose()
       return
     }
     if (event.key !== 'Tab') return
@@ -105,12 +242,17 @@ export default function FullPlayer({ onClose, onOpenQueue }: { onClose: () => vo
       className="fixed inset-0 z-50 flex animate-sheet-expand flex-col overflow-y-auto bg-bg"
       style={{ backgroundImage: `linear-gradient(180deg, ${now.cover.from}66 0%, #121212 70%)` }}
     >
+      {/* Petunjuk: seret ke bawah untuk kembali ke mini player. */}
+      <span
+        aria-hidden="true"
+        className="pointer-events-none absolute left-1/2 top-[max(0.375rem,env(safe-area-inset-top))] h-1 w-10 -translate-x-1/2 rounded-full bg-white/25"
+      />
       <div className="mx-auto flex w-full max-w-md flex-1 flex-col pb-[max(1.5rem,env(safe-area-inset-bottom))] pl-[max(1.5rem,env(safe-area-inset-left))] pr-[max(1.5rem,env(safe-area-inset-right))] pt-[max(0.75rem,env(safe-area-inset-top))]">
         <header className="flex items-center justify-between">
           <button
             ref={closeRef}
             type="button"
-            onClick={onClose}
+            onClick={animateClose}
             aria-label="Tutup pemutar penuh"
             className="-ml-2 flex h-11 w-11 items-center justify-center rounded-full text-ink transition-colors hover:bg-white/10 focus-ring"
           >
