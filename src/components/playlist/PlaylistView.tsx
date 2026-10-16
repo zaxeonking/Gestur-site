@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { AlertCircle, ListMusic, RotateCw } from 'lucide-react'
 import { useLibrary } from '../../context/LibraryContext'
 import { usePlaylist } from '../../context/PlaylistContext'
@@ -6,6 +7,7 @@ import { noticeMessage } from '../../utils/libraryNotice'
 import { classifyImportInput } from '../../utils/spotifyUrl'
 import { getRowActivity } from '../../utils/playerStatus'
 import EmptyState from '../ui/EmptyState'
+import AddToPlaylistSheet from './AddToPlaylistSheet'
 import PlaylistHeader from './PlaylistHeader'
 import PlaylistSkeleton from './PlaylistSkeleton'
 import TrackList from './TrackList'
@@ -42,6 +44,14 @@ export default function PlaylistView() {
   const wasSearch = requestedUrl !== null && ['search', 'track'].includes(classifyImportInput(requestedUrl).kind)
   const player = useAudioPlayer()
   const { notice, savedIdFor, savePlaylist, removePlaylist, dismissNotice } = useLibrary()
+
+  const [picking, setPicking] = useState(false)
+  const [toast, setToast] = useState<string | null>(null)
+  useEffect(() => {
+    if (toast === null) return
+    const timer = setTimeout(() => setToast(null), 2500)
+    return () => clearTimeout(timer)
+  }, [toast])
 
   if (status === 'loading') return <PlaylistSkeleton />
 
@@ -120,7 +130,24 @@ export default function PlaylistView() {
         isSaved={savedId !== null}
         // Lagu satuan (hasil cari judul / tautan lagu) tidak bisa masuk Koleksi; simpan lewat "Playlist saya".
         onToggleSaved={playlist.source === 'search' ? undefined : handleToggleSaved}
+        onAddToPlaylist={playlist.source === 'search' && playlist.tracks.length > 0 ? () => setPicking(true) : undefined}
       />
+
+      {picking && playlist.tracks[0] && (
+        <AddToPlaylistSheet
+          track={playlist.tracks[0]}
+          onClose={() => setPicking(false)}
+          onDone={setToast}
+        />
+      )}
+      {toast && (
+        <div
+          role="status"
+          className="fixed inset-x-4 bottom-44 z-[70] mx-auto w-fit max-w-sm rounded-full bg-ink px-4 py-2 text-center text-sm font-medium text-bg shadow-lg"
+        >
+          {toast}
+        </div>
+      )}
 
       <TrackList
         key={playlist.id}

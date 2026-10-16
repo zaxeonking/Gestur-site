@@ -1,4 +1,4 @@
-import { BookmarkCheck, BookmarkPlus, Play, RotateCw } from 'lucide-react'
+import { BookmarkCheck, BookmarkPlus, ListPlus, Play, RotateCw } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { fallbackCover } from '../../utils/fallbackCover'
 import { isSafeHttpUrl } from '../../utils/spotifyUrl'
@@ -39,6 +39,8 @@ interface PlaylistHeaderProps {
   isSaved?: boolean
   /** Menambah/menghapus dari Koleksi. Tombol disembunyikan jika tidak diberikan. */
   onToggleSaved?: () => void
+  /** Menambahkan lagu ke "Playlist saya" (dipakai untuk hasil pencarian lagu satuan). */
+  onAddToPlaylist?: () => void
 }
 
 export default function PlaylistHeader({
@@ -51,6 +53,7 @@ export default function PlaylistHeader({
   onReload,
   isSaved = false,
   onToggleSaved,
+  onAddToPlaylist,
 }: PlaylistHeaderProps) {
   const fallback = useMemo(() => fallbackCover(title), [title])
 
@@ -98,6 +101,12 @@ export default function PlaylistHeader({
                   <BookmarkPlus className="h-4 w-4" aria-hidden="true" />
                 )}
                 {isSaved ? 'Hapus dari Koleksi' : 'Simpan ke Koleksi'}
+              </button>
+            )}
+            {onAddToPlaylist && (
+              <button type="button" onClick={onAddToPlaylist} aria-haspopup="dialog" className="btn-secondary">
+                <ListPlus className="h-4 w-4" aria-hidden="true" />
+                Tambah ke playlist
               </button>
             )}
             {onReload && (

@@ -1,4 +1,4 @@
-import { Link2, Loader2, X } from 'lucide-react'
+import { ClipboardPaste, Link2, Loader2, X } from 'lucide-react'
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
 import { usePlaylist } from '../../context/PlaylistContext'
 import { classifyImportInput, getLiveLoadTarget, validateSpotifyPlaylistUrl } from '../../utils/spotifyUrl'
@@ -9,7 +9,7 @@ const LIVE_SEARCH_DEBOUNCE_MS = 700
 const sameQuery = (a: string, b: string) => a.toLowerCase().replace(/\s+/g, ' ') === b.toLowerCase().replace(/\s+/g, ' ')
 
 export default function PlaylistImportForm() {
-  const { status, isLive, loadPlaylist, reset } = usePlaylist()
+  const { status, loadPlaylist, reset } = usePlaylist()
   const [value, setValue] = useState('')
   const [validationError, setValidationError] = useState<string | null>(null)
   const inputId = useId()
@@ -17,6 +17,7 @@ export default function PlaylistImportForm() {
   const loading = status === 'loading'
   const inputKind = classifyImportInput(value).kind
   /** Teks terakhir yang sudah dimuat (otomatis atau lewat tombol), agar tidak diulang. */
+  const inputRef = useRef<HTMLInputElement>(null)
   const lastLoadedRef = useRef<string | null>(null)
 
   // Pencarian langsung: muat otomatis setelah pengguna berhenti mengetik.
@@ -53,11 +54,28 @@ export default function PlaylistImportForm() {
     await loadPlaylist(value)
   }
 
+  /** Kosongkan input dan langsung kembali ke beranda: batalkan permintaan yang berjalan, hapus hasil. */
   function handleReset() {
     reset()
     setValue('')
     setValidationError(null)
     lastLoadedRef.current = null
+  }
+
+  /** Tempel teks dari clipboard; pencarian langsung jalan lewat debounce seperti mengetik biasa. */
+  async function handlePaste() {
+    try {
+      const text = (await navigator.clipboard.readText()).trim()
+      if (!text) {
+        setValidationError('Clipboard kosong. Salin judul atau tautan lagu dulu.')
+        return
+      }
+      setValue(text)
+      setValidationError(null)
+      inputRef.current?.focus()
+    } catch {
+      setValidationError('Tidak bisa membaca clipboard. Izinkan akses tempel, atau tempel manual di kolom ini.')
+    }
   }
 
   return (
@@ -73,12 +91,19 @@ export default function PlaylistImportForm() {
           />
           <input
             id={inputId}
+            ref={inputRef}
             type="text"
             inputMode="search"
             enterKeyHint="search"
             value={value}
             onChange={(e) => {
-              setValue(e.target.value)
+              const next = e.target.value
+              if (next.trim() === '') {
+                // Dihapus sampai kosong: tidak mungkin ada hasil, jadi langsung kembali tanpa menunggu.
+                handleReset()
+                return
+              }
+              setValue(next)
               if (validationError) setValidationError(null)
             }}
             placeholder="Judul lagu, tautan lagu, atau tautan playlist"
@@ -86,10 +111,29 @@ export default function PlaylistImportForm() {
             spellCheck={false}
             aria-invalid={validationError ? true : undefined}
             aria-describedby={validationError ? errorId : undefined}
-            className={`h-12 w-full rounded-full bg-raised pl-12 pr-4 text-base text-ink placeholder:text-ink-faint focus:outline-none focus:ring-2 ${
+            className={`h-12 w-full rounded-full bg-raised pl-12 pr-14 text-base text-ink placeholder:text-ink-faint focus:outline-none focus:ring-2 ${
               validationError ? 'ring-2 ring-danger focus:ring-danger' : 'focus:ring-accent'
             }`}
           />
+          {value.length > 0 ? (
+            <button
+              type="button"
+              onClick={handleReset}
+              aria-label="Hapus pencarian"
+              className="absolute right-2 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full text-ink-muted transition-colors hover:text-ink active:bg-white/10 focus-ring"
+            >
+              <X className="h-5 w-5" aria-hidden="true" />
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => void handlePaste()}
+              aria-label="Tempel dari clipboard"
+              className="absolute right-2 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full text-ink-muted transition-colors hover:text-ink active:bg-white/10 focus-ring"
+            >
+              <ClipboardPaste className="h-5 w-5" aria-hidden="true" />
+            </button>
+          )}
         </div>
         <div className="flex gap-2">
           <button
@@ -102,16 +146,6 @@ export default function PlaylistImportForm() {
             )}
             {loading ? 'Memuat…' : inputKind === 'playlist' ? 'Muat playlist' : inputKind === 'track' ? 'Muat lagu' : 'Cari lagu'}
           </button>
-          {isLive && (
-            <button
-              type="button"
-              onClick={handleReset}
-              aria-label="Hapus playlist yang dimuat"
-              className="icon-btn h-12 w-12 bg-raised"
-            >
-              <X className="h-5 w-5" aria-hidden="true" />
-            </button>
-          )}
         </div>
       </div>
       {validationError && (
