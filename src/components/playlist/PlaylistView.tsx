@@ -133,7 +133,6 @@ export default function PlaylistView() {
       <PlaylistHeader
         title={playlist.title}
         cover={playlist.cover}
-        author={playlist.author}
         trackCount={playlist.tracks.length}
         fromCache={fromCache}
         onPlayAll={() => player.playAll(playlist.tracks)}

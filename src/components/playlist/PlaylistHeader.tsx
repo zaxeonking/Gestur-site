@@ -28,7 +28,6 @@ interface PlaylistHeaderProps {
   title: string
   cover: string
   trackCount: number
-  author?: string
   /** True jika playlist dipulihkan dari penyimpanan perangkat. */
   fromCache?: boolean
   /** Play All: memutar seluruh lagu playlist berurutan (lihat `playAll` di audio engine). */
@@ -49,7 +48,6 @@ export default function PlaylistHeader({
   title,
   cover,
   trackCount,
-  author,
   fromCache = false,
   onPlayAll,
   onReload,
@@ -73,7 +71,6 @@ export default function PlaylistHeader({
             {title}
           </h2>
           <p className="mt-3 text-sm text-ink">
-            {author ? <span className="text-ink-muted">{author} · </span> : null}
             {trackCount} lagu
           </p>
           {fromCache && (

@@ -32,7 +32,7 @@ export default function SavedPlaylistCard({ playlist, layout, active, onOpen, on
   }, [confirming])
 
   const count = playlist.tracks.length
-  const subtitle = `${count} lagu${playlist.author ? ` · ${playlist.author}` : ''}`
+  const subtitle = `${count} lagu`
 
   const actions = confirming ? (
     <div className="flex flex-wrap items-center gap-2" role="group" aria-label={`Konfirmasi hapus ${playlist.title}`}>
