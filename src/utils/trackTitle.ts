@@ -27,15 +27,19 @@ export function stripArtistPrefix(title: string, artists: string): string {
   const trimmed = title.trim()
   const names = artistList(artists)
   if (names.length === 0) return trimmed
-  const first = trimmed.indexOf(' - ')
-  if (first > 0) {
-    const rest = trimmed.slice(first + 3).trim()
-    if (rest && isArtist(trimmed.slice(0, first), names)) return rest
-  }
-  const last = trimmed.lastIndexOf(' - ')
-  if (last > 0) {
-    const head = trimmed.slice(0, last).trim()
-    if (head && isArtist(trimmed.slice(last + 3), names)) return head
-  }
+  // Pemisah: " - ", " – ", " — ", " | " (dengan spasi di kedua sisi).
+  const seps = [...trimmed.matchAll(/\s+[-\u2013\u2014|]\s+/g)]
+  if (seps.length === 0) return trimmed
+  const first = seps[0]
+  const rest = trimmed.slice(first.index + first[0].length).trim()
+  if (rest && isArtist(trimmed.slice(0, first.index), names)) return rest
+  const last = seps[seps.length - 1]
+  const head = trimmed.slice(0, last.index).trim()
+  if (head && isArtist(trimmed.slice(last.index + last[0].length), names)) return head
   return trimmed
+}
+
+/** Judul untuk ditampilkan: tanpa nama artis (artis sudah tampil di bawah judul). */
+export function displayTitle(title: string, artists: string): string {
+  return stripArtistPrefix(title, artists)
 }

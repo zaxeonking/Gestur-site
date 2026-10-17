@@ -116,9 +116,10 @@ function parseTrack(raw: unknown): SpotifyApiTrack | null {
   const { title, artists, album, duration, cover, url } = raw
   if (typeof title !== 'string' || !title.trim()) return null
   if (typeof url !== 'string' || !url.trim()) return null
+  const artistText = typeof artists === 'string' ? artists : ''
   return {
-    title: title.trim(),
-    artists: typeof artists === 'string' ? artists : '',
+    title: stripArtistPrefix(title.trim(), artistText),
+    artists: artistText,
     album: typeof album === 'string' ? album : '',
     duration: typeof duration === 'string' ? duration : '',
     cover: typeof cover === 'string' ? cover : '',

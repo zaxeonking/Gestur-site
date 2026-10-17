@@ -9,6 +9,7 @@ import type {
 import type { PlaylistDetail, PlaylistTrack } from '../types/spotify'
 import { readJson, writeJson, type WriteOutcome } from './safeStorage'
 import { extractTrackId, validateSpotifyPlaylistUrl } from './spotifyUrl'
+import { stripArtistPrefix } from './trackTitle'
 
 /**
  * Penyimpanan Koleksi. Tiga kunci terpisah, masing-masing berversi:
@@ -72,11 +73,12 @@ export function parseStoredTrack(raw: unknown): PlaylistTrack | null {
   if (typeof id !== 'string' || !id) return null
   if (typeof title !== 'string' || !title.trim()) return null
   if (typeof url !== 'string' || !url.trim()) return null
+  const artists = text(raw.artists)
   return toStoredTrack({
     id,
-    title,
+    title: stripArtistPrefix(title, artists),
     url,
-    artists: text(raw.artists),
+    artists,
     album: text(raw.album),
     duration: text(raw.duration),
     cover: text(raw.cover),

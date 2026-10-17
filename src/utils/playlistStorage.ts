@@ -1,5 +1,6 @@
 import type { PlaylistDetail, PlaylistTrack } from '../types/spotify'
 import { validateSpotifyPlaylistUrl } from './spotifyUrl'
+import { stripArtistPrefix } from './trackTitle'
 
 const STORAGE_KEY = 'musicverse:last-playlist:v1'
 
@@ -44,7 +45,9 @@ export function loadLastPlaylist(): PlaylistDetail | null {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return null
     const parsed: unknown = JSON.parse(raw)
-    if (isPlaylistDetail(parsed)) return parsed
+    if (isPlaylistDetail(parsed)) {
+      return { ...parsed, tracks: parsed.tracks.map((t) => ({ ...t, title: stripArtistPrefix(t.title, t.artists) })) }
+    }
     localStorage.removeItem(STORAGE_KEY)
     return null
   } catch {
