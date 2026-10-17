@@ -86,7 +86,7 @@ function errorMessage(code: PlayerErrorCode): string {
     case 'no_audio':
       return 'Server tidak menyediakan audio untuk lagu ini.'
     case 'clip_only':
-      return 'Server hanya menyediakan cuplikan (±30 detik) untuk lagu ini, bukan audio penuh. Coba lagi nanti.'
+      return 'Audio yang didapat dari server tidak sesuai dengan lagunya (cuplikan atau durasi berbeda jauh), jadi tidak diputar. Coba lagi nanti.'
     case 'blocked':
       return 'Browser memblokir pemutaran. Tekan tombol Play sekali lagi.'
     case 'network':

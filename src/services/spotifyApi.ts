@@ -6,7 +6,10 @@ import type {
   SpotifyApiPlaylistResponse,
   SpotifyApiTrack,
 } from '../types/spotify'
+import { durationFit, isLikelyClip } from '../utils/clipDetect'
+import { parseDuration } from '../utils/formatTime'
 import { scoreCandidate } from '../utils/matchTrack'
+import { probeAudioDuration } from '../utils/probeAudio'
 import { stripArtistPrefix } from '../utils/trackTitle'
 import { extractSpotifyTrackLink, extractTrackId, isSafeHttpUrl, validateSpotifyPlaylistUrl } from '../utils/spotifyUrl'
 
@@ -653,23 +656,39 @@ export async function searchTrackByLink(
   return info
 }
 
-/** Setelah satu sumber berhasil, sumber lain masih ditunggu sebentar supaya bisa dibandingkan. */
-const COMPARE_GRACE_MS = 2500
-/** Skor yang dianggap pasti cocok: langsung dipakai tanpa menunggu sumber lain. */
-const CONFIDENT_SCORE = 1
+/** Skor minimum agar kandidat langsung dipakai tanpa mencoba sumber lain. */
+const ACCEPT_SCORE = 0.7
 
-interface Source {
-  name: string
-  viaLink: boolean
-  run: (options: FetchPlaylistOptions) => Promise<PlaybackInfo>
+interface Candidate {
+  name: 'kyzz' | 'cadangan'
+  info: PlaybackInfo
+  score: number
+  fit: number | null
+  actual: number | null
+}
+
+/** API download (kyzz) dicoba sampai 3 kali: permintaan kedua dst. kadang gagal sesaat (rate limit/timeout). */
+async function requestDownloadWithRetry(link: string, options: FetchPlaylistOptions): Promise<PlaybackInfo> {
+  let lastError: unknown
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      return await requestDownload(link, options)
+    } catch (error) {
+      if (error instanceof SpotifyApiError && error.code === 'aborted') throw error
+      lastError = error
+      console.warn(`[MusicVerse] API download (kyzz) gagal (percobaan ${attempt}/3):`, error)
+      if (attempt < 3) await new Promise((r) => setTimeout(r, 600 * attempt))
+    }
+  }
+  throw lastError
 }
 
 /**
- * Info playback untuk pemutaran. SEMUA sumber dipanggil bersamaan:
- *  - kyzz (tautan lagu), API cadangan /api/spotify (tautan lagu), /api/spotifyplay (judul + artis).
- * Hasilnya dinilai terhadap data lagu di playlist (judul, artis, durasi, tautan) dan dipakai yang paling
- * cocok. Hasil yang pasti cocok langsung dipakai; jika tidak, sumber lain ditunggu hingga
- * COMPARE_GRACE_MS setelah hasil pertama. Hasil pencarian yang baru dibuat (sekali pakai) dipakai lebih dulu.
+ * Info playback untuk pemutaran. Sumber dicoba berurutan (kyzz, lalu API cadangan). Setiap hasil DIVERIFIKASI
+ * terhadap data lagu di playlist: judul, artis, dan durasi file audio yang sebenarnya (metadata audio dibaca
+ * langsung, bukan durasi dari JSON API yang tidak bisa dipercaya). Hasil yang cocok langsung dipakai; jika
+ * tidak, sumber berikutnya dicoba dan yang paling cocok dipilih. Audio yang durasinya jelas tidak sesuai
+ * (cuplikan atau lagu lain) tidak pernah diputar.
  */
 export async function fetchPlaybackInfo(
   track: { title: string; url?: string; artists?: string; duration?: string },
@@ -680,91 +699,66 @@ export async function fetchPlaybackInfo(
   if (handed) return handed
 
   const external = options.signal
-  if (external?.aborted) throw new SpotifyApiError('aborted', 'Permintaan dibatalkan.')
+  const aborted = () => new SpotifyApiError('aborted', 'Permintaan dibatalkan.')
+  if (external?.aborted) throw aborted()
 
-  const link = extractSpotifyTrackLink(track.url ?? '')
-  const titleQuery = [stripArtistPrefix(track.title, track.artists ?? ''), track.artists?.split(/\s*[,&;]\s*/)[0]].filter(Boolean).join(' ')
-  const sources: Source[] = []
-  if (link) {
-    // Berurutan, bukan paralel: kyzz (audio penuh) diutamakan; API cadangan hanya jika kyzz gagal.
-    // Sebelumnya keduanya paralel dan API cadangan bisa menang dengan audio ~30 detik.
-    sources.push({ name: 'kyzz', viaLink: true, run: (o) => requestByLink(link, o) })
-  }
+  const wanted = { title: track.title, artists: track.artists ?? '', duration: track.duration ?? '', url: track.url }
+  const expected = parseDuration(wanted.duration)
+
+  let link = extractSpotifyTrackLink(track.url ?? '')
   if (!link) {
     // Tanpa tautan: cari lewat judul hanya untuk menemukan tautan lagu, lalu ambil audio penuhnya.
     // `mp3_url` dari endpoint judul adalah cuplikan ~30 detik, jadi tidak pernah dipakai.
-    sources.push({
-      name: 'judul->tautan',
-      viaLink: false,
-      run: async (o) => {
-        const found = await requestPlayback(titleQuery, o)
-        const foundLink = extractSpotifyTrackLink(found.spotifyUrl ?? '')
-        if (!foundLink) throw new SpotifyApiError('no_audio', 'Tautan lagu tidak ditemukan.')
-        return requestByLink(foundLink, o)
-      },
-    })
+    const titleQuery = [stripArtistPrefix(track.title, track.artists ?? ''), track.artists?.split(/\s*[,&;]\s*/)[0]]
+      .filter(Boolean)
+      .join(' ')
+    const found = await requestPlayback(titleQuery, options)
+    link = extractSpotifyTrackLink(found.spotifyUrl ?? '')
+    if (!link) throw new SpotifyApiError('no_audio', 'Tautan lagu tidak ditemukan.')
   }
 
-  const wanted = { title: track.title, artists: track.artists ?? '', duration: track.duration ?? '', url: track.url }
-  const inner = new AbortController()
-  const onExternalAbort = () => inner.abort()
-  external?.addEventListener('abort', onExternalAbort, { once: true })
+  const avoid = options.avoid ?? []
+  const order = (['kyzz', 'cadangan'] as const).filter((name) => !avoid.includes(name))
+  if (order.length === 0) {
+    throw new SpotifyApiError('clip_only', 'Semua sumber hanya menyediakan audio yang tidak sesuai dengan lagunya.')
+  }
 
-  return new Promise<PlaybackInfo>((resolve, reject) => {
-    const results: Array<{ name: string; info: PlaybackInfo; score: number; order: number }> = []
-    const errors: unknown[] = []
-    let pending = sources.length
-    let done = false
-    let graceTimer: ReturnType<typeof setTimeout> | undefined
-
-    const finish = (action: () => void) => {
-      if (done) return
-      done = true
-      clearTimeout(graceTimer)
-      external?.removeEventListener('abort', onExternalAbort)
-      inner.abort() // batalkan sumber yang masih berjalan
-      action()
+  const candidates: Candidate[] = []
+  let lastError: unknown
+  for (const name of order) {
+    if (external?.aborted) throw aborted()
+    let info: PlaybackInfo
+    try {
+      info = name === 'kyzz' ? await requestDownloadWithRetry(link, options) : await requestTrack(link, options)
+    } catch (error) {
+      if (error instanceof SpotifyApiError && error.code === 'aborted') throw error
+      lastError = error
+      console.warn(`[MusicVerse] Sumber ${name} gagal:`, error)
+      continue
     }
-    const pickBest = () => {
-      // Skor sama: sumber yang lebih awal di daftar (kyzz) menang.
-      const best = results.reduce((a, b) => (b.score > a.score ? b : a))
-      console.info(
-        '[MusicVerse] Kandidat audio:',
-        results.map((r) => `${r.name}=${r.score.toFixed(2)}`).join(', '),
-        '→ dipakai:',
-        best.name,
-      )
-      resolve({ ...best.info, source: best.name })
-    }
-    const settleAll = () => {
-      if (results.length > 0) return pickBest()
-      const real = errors.find((e) => !(e instanceof SpotifyApiError && e.code === 'aborted'))
-      reject(real ?? errors[0] ?? new SpotifyApiError('aborted', 'Permintaan dibatalkan.'))
-    }
+    const actual = await probeAudioDuration(info.audioUrl, 7000, external)
+    if (external?.aborted) throw aborted()
+    const fit = durationFit(actual, expected)
+    const score = scoreCandidate(wanted, info, true, actual)
+    console.info(
+      `[MusicVerse] Kandidat ${name}: skor ${score.toFixed(2)}, durasi audio ${actual?.toFixed(1) ?? '?'} dtk ` +
+        `(playlist ${expected ?? '?'} dtk), judul "${info.title}", artis "${info.artist}"`,
+    )
+    candidates.push({ name, info: { ...info, source: name }, score, fit, actual })
+    // Cocok (judul, artis, durasi) dan bukan klip: pakai langsung, tidak perlu menunggu sumber lain.
+    if ((fit === null || fit >= 0.7) && !isLikelyClip(actual, expected) && score >= ACCEPT_SCORE) break
+  }
 
-    external?.addEventListener('abort', () => finish(() => reject(new SpotifyApiError('aborted', 'Permintaan dibatalkan.'))), { once: true })
+  if (candidates.length === 0) throw lastError ?? aborted()
 
-    sources.forEach((source, order) => {
-      source
-        .run({ ...options, signal: inner.signal })
-        .then((info) => {
-          if (done) return
-          const score = scoreCandidate(wanted, info, source.viaLink)
-          results.push({ name: source.name, info, score, order })
-          results.sort((a, b) => a.order - b.order)
-          if (score >= CONFIDENT_SCORE) return finish(pickBest)
-          graceTimer ??= setTimeout(() => finish(pickBest), COMPARE_GRACE_MS)
-        })
-        .catch((error: unknown) => {
-          if (done) return
-          console.warn(`[MusicVerse] Sumber ${source.name} gagal:`, error)
-          errors.push(error)
-        })
-        .finally(() => {
-          if (done) return
-          pending -= 1
-          if (pending === 0) finish(settleAll)
-        })
-    })
-  })
+  // Terbaik = skor tertinggi; skor sama: sumber yang lebih awal (kyzz) menang.
+  const best = candidates.reduce((a, b) => (b.score > a.score ? b : a))
+  // Durasi audio jelas tidak sesuai (cuplikan atau lagu lain): jangan diputar, lebih baik beri tahu.
+  if (best.fit === 0 || isLikelyClip(best.actual, expected)) {
+    throw new SpotifyApiError(
+      'clip_only',
+      `Audio yang ditemukan (${Math.round(best.actual ?? 0)} dtk) tidak sesuai dengan lagunya (${expected ?? '?'} dtk).`,
+    )
+  }
+  return best.info
 }

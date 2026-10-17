@@ -1,4 +1,5 @@
 import type { PlaybackInfo } from '../types/spotify'
+import { durationFit } from './clipDetect'
 import { parseDuration } from './formatTime'
 import { extractTrackId } from './spotifyUrl'
 import { normalizeSearchText } from './trackSearch'
@@ -62,8 +63,10 @@ function artistScore(wanted: WantedTrack, info: PlaybackInfo): number | null {
 }
 
 /** 0..1, atau null jika salah satu durasi tidak diketahui. */
-function durationScore(wanted: WantedTrack, info: PlaybackInfo): number | null {
+function durationScore(wanted: WantedTrack, info: PlaybackInfo, actualDuration: number | null): number | null {
   const a = parseDuration(wanted.duration)
+  // Durasi file audio yang sebenarnya lebih dapat dipercaya daripada metadata API.
+  if (actualDuration !== null) return durationFit(actualDuration, a)
   const b = parseDuration(info.duration)
   if (a === null || b === null) return null
   const diff = Math.abs(a - b)
@@ -79,11 +82,16 @@ function durationScore(wanted: WantedTrack, info: PlaybackInfo): number | null {
  * bonus jika tautan Spotify yang dikembalikan sama dengan tautan lagu di playlist.
  * Skor >= 1 dianggap pasti cocok. Nilai tidak dibatasi 1 supaya bonus bisa menjadi pembeda.
  */
-export function scoreCandidate(wanted: WantedTrack, info: PlaybackInfo, viaLink: boolean): number {
+export function scoreCandidate(
+  wanted: WantedTrack,
+  info: PlaybackInfo,
+  viaLink: boolean,
+  actualDuration: number | null = null,
+): number {
   const parts: Array<[number | null, number]> = [
-    [titleScore(wanted, info), 0.4],
-    [artistScore(wanted, info), 0.25],
-    [durationScore(wanted, info), 0.35],
+    [titleScore(wanted, info), 0.3],
+    [artistScore(wanted, info), 0.2],
+    [durationScore(wanted, info, actualDuration), actualDuration !== null ? 0.5 : 0.35],
   ]
   let weight = 0
   let sum = 0
