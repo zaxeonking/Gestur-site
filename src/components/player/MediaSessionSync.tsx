@@ -50,6 +50,10 @@ export default function MediaSessionSync() {
   const album = currentTrack?.album ?? ''
   const coverUrl = currentTrack?.cover || undefined
 
+  // Metadata terakhir yang dipasang; dipasang ulang saat lagu benar-benar mulai bunyi (lihat efek di bawah).
+  const metadataRef = useRef<MediaMetadataInit | null>(null)
+  const prevStatus = useRef(status)
+
   // Judul lagu di atas, artis di bawahnya. Sampul: ikon app dulu, lalu diganti sampul lagu + badge logo.
   useEffect(() => {
     if (!supported) return
@@ -57,7 +61,8 @@ export default function MediaSessionSync() {
       navigator.mediaSession.metadata = null
       return
     }
-    navigator.mediaSession.metadata = new MediaMetadata({ title, artist: artists, album, artwork: fallbackArtwork() })
+    metadataRef.current = { title, artist: artists, album, artwork: fallbackArtwork() }
+    navigator.mediaSession.metadata = new MediaMetadata(metadataRef.current)
 
     let cancelled = false
     let blobUrl: string | null = null
@@ -69,12 +74,13 @@ export default function MediaSessionSync() {
           return
         }
         blobUrl = url
-        navigator.mediaSession.metadata = new MediaMetadata({
+        metadataRef.current = {
           title,
           artist: artists,
           album,
           artwork: [{ src: url, sizes: '512x512', type: 'image/png' }],
-        })
+        }
+        navigator.mediaSession.metadata = new MediaMetadata(metadataRef.current)
       })
       .catch(() => {
         // Tetap pakai ikon app.
@@ -95,6 +101,24 @@ export default function MediaSessionSync() {
     else {
       const playing = status === 'playing' || status === 'buffering' || status === 'loading' || status === 'resolving'
       navigator.mediaSession.playbackState = playing ? 'playing' : 'paused'
+    }
+  }, [supported, trackId, status])
+
+  // Setelah lagu selesai, Android menghapus notifikasi media dan tidak selalu memunculkannya lagi saat lagu
+  // berikutnya mulai (metadata sudah dipasang waktu elemen audio masih diam). Begitu lagu baru benar-benar
+  // bunyi, pasang ulang metadata dan status play supaya notifikasi dibuat lagi.
+  useEffect(() => {
+    const before = prevStatus.current
+    prevStatus.current = status
+    if (!supported || trackId === null || status !== 'playing') return
+    if (before !== 'loading' && before !== 'resolving' && before !== 'ended') return
+    const init = metadataRef.current
+    if (!init) return
+    try {
+      navigator.mediaSession.metadata = new MediaMetadata(init)
+      navigator.mediaSession.playbackState = 'playing'
+    } catch {
+      // Tidak didukung: abaikan.
     }
   }, [supported, trackId, status])
 
