@@ -4,6 +4,7 @@ import { useAudioPlayer, usePlaybackTime } from '../../hooks/useAudioPlayer'
 import type { MiniSide } from '../../hooks/useMiniPlayerMode'
 import type { NowPlaying } from '../../hooks/useNowPlaying'
 import { parseDuration } from '../../utils/formatTime'
+import { swallowNextClick } from '../../utils/swallowNextClick'
 import CoverArt from '../ui/CoverArt'
 
 const SIZE = 56 // px (h-14 w-14)
@@ -106,7 +107,10 @@ export default function MiniBubble({ now, side, width, onExpand, onSideChange }:
     const dx = event.clientX - g.x
     const dy = event.clientY - g.y
     setDrag(null)
-    if (cancelled || g.held) return
+    if (cancelled) return
+    // Klik susulan setelah jari diangkat tidak boleh tembus ke elemen di belakang gelembung.
+    swallowNextClick()
+    if (g.held) return
     if (!g.moved) {
       onExpand()
       return

@@ -3,6 +3,7 @@ import { useAudioPlayer } from '../../hooks/useAudioPlayer'
 import { useMiniPlayerMode } from '../../hooks/useMiniPlayerMode'
 import { useNowPlaying } from '../../hooks/useNowPlaying'
 import { STATUS_TEXT } from '../../utils/playerStatus'
+import { swallowNextClick } from '../../utils/swallowNextClick'
 import CoverArt from '../ui/CoverArt'
 import { PlayerError, QueueButton, SpotifyLink, TransportControls } from './PlayerControls'
 import LyricLine from './LyricLine'
@@ -173,6 +174,7 @@ export default function MiniPlayer({ onOpen, onOpenQueue }: { onOpen: () => void
     d.active = false
     // Klik yang menyusul pelepasan jari setelah seretan tidak boleh menekan tombol di bawah jari.
     swallowClick.current = true
+    swallowNextClick()
     window.setTimeout(() => {
       swallowClick.current = false
     }, 120)
