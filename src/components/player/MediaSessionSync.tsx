@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { usePlaybackTime, usePlayerActions, useAudioPlayer } from '../../hooks/useAudioPlayer'
 import { composeNotificationCover } from '../../utils/notificationCover'
 import { fallbackCover } from '../../utils/fallbackCover'
+import { stripArtistPrefix } from '../../utils/trackTitle'
 
 /** Ikon app (PNG dari favicon): sampul sementara selagi sampul lagu + badge logo dibuat, dan cadangan jika gagal. */
 const ARTWORK_SIZES = [192, 512] as const
@@ -44,8 +45,8 @@ export default function MediaSessionSync() {
   })
 
   const trackId = currentTrack?.id ?? null
-  const title = currentTrack?.title ?? ''
   const artists = currentTrack?.artists ?? ''
+  const title = stripArtistPrefix(currentTrack?.title ?? '', artists)
   const album = currentTrack?.album ?? ''
   const coverUrl = currentTrack?.cover || undefined
 

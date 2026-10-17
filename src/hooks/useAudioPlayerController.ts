@@ -861,7 +861,13 @@ export function useAudioPlayerController(playlistTracks: PlaylistTrack[]) {
       if (!audioEngine.isPreloadReady(preload.info.audioUrl, true)) return
       // Lagu berikutnya ternyata hanya klip ~30 detik: jangan di-crossfade. Entri dibiarkan 'resolving'
       // (tidak dicoba lagi tiap timeupdate); saat lagu ini selesai, startPlayback mengambil sumber yang benar.
-      if (isLikelyClip(audioEngine.preloadDuration(preload.info.audioUrl), parseDurationText(nextTrack.duration))) {
+      // Durasi file belum diketahui (metadata belum termuat): jangan crossfade dulu, karena klip ~30 detik tidak
+      // bisa dikenali dan akan ikut diputar tanpa pengaman. Dicoba lagi di timeupdate berikutnya; jika tetap
+      // tidak diketahui, lagu berikutnya dimulai lewat startPlayback yang punya pengaman klip.
+      const expectedNext = parseDurationText(nextTrack.duration)
+      const loadedNext = audioEngine.preloadDuration(preload.info.audioUrl)
+      if (expectedNext !== null && loadedNext === null) return
+      if (isLikelyClip(loadedNext, expectedNext)) {
         preload.status = 'resolving'
         preload.info = null
         audioEngine.clearPreload()

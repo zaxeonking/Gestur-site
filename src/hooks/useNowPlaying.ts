@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import type { Cover } from '../types'
 import { fallbackCover } from '../utils/fallbackCover'
 import { resolveSpotifyTrackUrl } from '../utils/spotifyUrl'
+import { stripArtistPrefix } from '../utils/trackTitle'
 import { useAudioPlayer } from './useAudioPlayer'
 
 export interface NowPlaying {
@@ -21,7 +22,7 @@ export function useNowPlaying(): NowPlaying | null {
   return useMemo(() => {
     if (!currentTrack) return null
     return {
-      title: currentTrack.title,
+      title: stripArtistPrefix(currentTrack.title, currentTrack.artists || playbackInfo?.artist || ''),
       artists: currentTrack.artists || playbackInfo?.artist || '',
       album: currentTrack.album,
       coverSrc: currentTrack.cover || playbackInfo?.cover || undefined,
