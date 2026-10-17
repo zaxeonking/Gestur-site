@@ -10,6 +10,8 @@ const ARTWORK_SIZES = [192, 512] as const
 const SKIP_S = 10
 /** Selisih (detik) antara posisi yang diperkirakan sistem dan posisi sebenarnya sebelum dilaporkan ulang. */
 const DRIFT_S = 1.5
+/** Laporkan ulang posisi paling lambat setiap sekian milidetik, walau tidak ada selisih berarti. */
+const REFRESH_MS = 5000
 
 function fallbackArtwork(): MediaImage[] {
   return ARTWORK_SIZES.map((size) => ({
@@ -145,8 +147,22 @@ export default function MediaSessionSync() {
     }
   }, [supported, hasNext, hasPrevious, seekable])
 
-  // Posisi: dilaporkan saat berubah berarti (seek, lagu baru, durasi baru); di antaranya sistem memperkirakan sendiri.
+  // Posisi: dilaporkan saat berubah berarti (seek, lagu baru, durasi baru) dan disegarkan berkala; di antaranya
+  // sistem memperkirakan sendiri. Tanpa penyegaran, notifikasi bisa terus memakai durasi lama (mis. 29 dtk dari
+  // cuplikan yang sudah dibuang) dan bilahnya penuh di 00:29 padahal lagunya panjang.
   const reported = useRef<{ position: number; at: number; duration: number; playing: boolean } | null>(null)
+
+  // Lagu berganti: buang posisi/durasi lagu sebelumnya agar tidak tersisa di notifikasi.
+  useEffect(() => {
+    reported.current = null
+    if (!supported) return
+    try {
+      navigator.mediaSession.setPositionState()
+    } catch {
+      // Tidak didukung: abaikan.
+    }
+  }, [supported, trackId])
+
   useEffect(() => {
     if (!supported || trackId === null || duration === null || !(duration > 0) || !Number.isFinite(duration)) return
     const playing = status === 'playing'
@@ -157,6 +173,7 @@ export default function MediaSessionSync() {
       last === null ||
       last.duration !== duration ||
       last.playing !== playing ||
+      now - last.at > REFRESH_MS ||
       expected === null ||
       Math.abs(expected - currentTime) > DRIFT_S
     if (!stale) return
