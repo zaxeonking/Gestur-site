@@ -137,6 +137,9 @@ function detectVolumeControl(): boolean {
   }
 }
 
+/** Perangkat Android (notifikasi media Chrome Android punya perilaku khusus saat lagu selesai). */
+const IS_ANDROID = typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent)
+
 class AudioEngine {
   /** Elemen aktif: satu-satunya yang event-nya diteruskan ke pendengar. */
   private audio: HTMLAudioElement | null = null
@@ -150,6 +153,8 @@ class AudioEngine {
   private activeSource: string | null = null
   private standbySource: string | null = null
   private standbyUnlocked = false
+  /** Elemen aktif baru saja menyelesaikan satu lagu (event `ended`). */
+  private activeEnded = false
   private readonly listeners = new Set<AudioEngineListener>()
 
   // Volume akhir elemen = master × trackEnd × gain elemen. Semuanya 0..1.
@@ -166,6 +171,7 @@ class AudioEngine {
     const audio = this.audio
     // Hanya elemen aktif yang dilaporkan; elemen cadangan / lagu lama yang sedang memudar diabaikan.
     if (!audio || event.target !== audio || this.activeSource === null) return
+    if (event.type === 'ended') this.activeEnded = true
     this.emitFrom(audio, event.type as AudioEngineEventType)
   }
 
@@ -418,7 +424,14 @@ class AudioEngine {
    * agar crossfade nanti (tanpa gestur) boleh memutarnya.
    */
   prime(): void {
-    const audio = this.element()
+    this.element()
+    // Android/Chrome menghapus notifikasi media saat elemen audio selesai memutar lagu dan tidak
+    // memunculkannya lagi walau elemen yang sama dipakai untuk lagu berikutnya. Elemen baru dianggap
+    // pemutar baru, jadi notifikasi dibuat ulang. Hanya di Android: iOS Safari mewajibkan setiap elemen
+    // dibuka kuncinya lewat gestur, sehingga elemen baru di tengah putar-otomatis akan diblokir.
+    if (this.activeEnded && IS_ANDROID) this.replaceActiveElement()
+    this.activeEnded = false
+    const audio = this.audio as HTMLAudioElement
     this.resetFades()
     this.activeSource = null
     audio.src = SILENT_SRC
@@ -433,9 +446,23 @@ class AudioEngine {
     }
   }
 
+  /** Mengganti elemen aktif dengan elemen baru; elemen lama dilepas sepenuhnya. */
+  private replaceActiveElement(): void {
+    const old = this.audio
+    this.audio = this.createElement()
+    this.applyVolume(this.audio)
+    if (!old) return
+    old.pause()
+    for (const type of EVENT_TYPES) old.removeEventListener(type, this.handleDomEvent)
+    old.removeAttribute('src')
+    old.load()
+    this.elementGain.delete(old)
+  }
+
   /** Memuat dan memutar URL. Resolve = play() diterima; status "playing" tetap menunggu event. */
   async load(url: string): Promise<void> {
     const audio = this.element()
+    this.activeEnded = false
     this.activeSource = url
     audio.src = url
     try {
