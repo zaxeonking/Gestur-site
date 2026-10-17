@@ -140,6 +140,38 @@ function detectVolumeControl(): boolean {
 /** Perangkat Android (notifikasi media Chrome Android punya perilaku khusus saat lagu selesai). */
 const IS_ANDROID = typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent)
 
+/** Berapa lama (ms) elemen penjaga tetap menyala setelah lagu selesai, menunggu lagu berikutnya dimulai. */
+const KEEPER_LINGER_MS = 15_000
+
+let silentLoopUrl: string | null = null
+/** WAV senyap 6 detik (8 kHz, 8-bit mono) sebagai Blob URL; cukup panjang agar dianggap media sungguhan oleh Chrome. */
+function getSilentLoopUrl(): string {
+  if (silentLoopUrl) return silentLoopUrl
+  const rate = 8000
+  const n = rate * 6
+  const buf = new ArrayBuffer(44 + n)
+  const v = new DataView(buf)
+  const text = (offset: number, value: string) => {
+    for (let i = 0; i < value.length; i += 1) v.setUint8(offset + i, value.charCodeAt(i))
+  }
+  text(0, 'RIFF')
+  v.setUint32(4, 36 + n, true)
+  text(8, 'WAVE')
+  text(12, 'fmt ')
+  v.setUint32(16, 16, true)
+  v.setUint16(20, 1, true)
+  v.setUint16(22, 1, true)
+  v.setUint32(24, rate, true)
+  v.setUint32(28, rate, true)
+  v.setUint16(32, 1, true)
+  v.setUint16(34, 8, true)
+  text(36, 'data')
+  v.setUint32(40, n, true)
+  new Uint8Array(buf, 44).fill(128)
+  silentLoopUrl = URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }))
+  return silentLoopUrl
+}
+
 class AudioEngine {
   /** Elemen aktif: satu-satunya yang event-nya diteruskan ke pendengar. */
   private audio: HTMLAudioElement | null = null
@@ -153,8 +185,13 @@ class AudioEngine {
   private activeSource: string | null = null
   private standbySource: string | null = null
   private standbyUnlocked = false
-  /** Elemen aktif baru saja menyelesaikan satu lagu (event `ended`). */
-  private activeEnded = false
+  /**
+   * Android/Chrome menghapus notifikasi media begitu elemen audio selesai memutar lagu dan tidak membuatnya
+   * lagi untuk lagu berikutnya yang dimulai tanpa sentuhan. Elemen penjaga memutar WAV senyap berulang selama
+   * ada lagu aktif, sehingga selalu ada media yang sedang berputar dan notifikasi bertahan di sela lagu.
+   */
+  private keeper: HTMLAudioElement | null = null
+  private keeperTimer = 0
   private readonly listeners = new Set<AudioEngineListener>()
 
   // Volume akhir elemen = master × trackEnd × gain elemen. Semuanya 0..1.
@@ -171,7 +208,9 @@ class AudioEngine {
     const audio = this.audio
     // Hanya elemen aktif yang dilaporkan; elemen cadangan / lagu lama yang sedang memudar diabaikan.
     if (!audio || event.target !== audio || this.activeSource === null) return
-    if (event.type === 'ended') this.activeEnded = true
+    if (event.type === 'play' || event.type === 'playing') this.keeperPlay()
+    else if (event.type === 'pause' && !audio.ended) this.keeperPause()
+    else if (event.type === 'ended' || event.type === 'error') this.keeperLinger()
     this.emitFrom(audio, event.type as AudioEngineEventType)
   }
 
@@ -196,6 +235,33 @@ class AudioEngine {
     for (const type of EVENT_TYPES) audio.addEventListener(type, this.handleDomEvent)
     this.elementGain.set(audio, 1)
     return audio
+  }
+
+  private keeperPlay(): void {
+    window.clearTimeout(this.keeperTimer)
+    if (!IS_ANDROID || typeof Audio === 'undefined') return
+    if (!this.keeper) {
+      const keeper = new Audio()
+      keeper.loop = true
+      keeper.preload = 'auto'
+      keeper.src = getSilentLoopUrl()
+      this.keeper = keeper
+    }
+    void this.keeper.play().catch(() => {
+      // Ditolak browser: lagu tetap jalan, hanya notifikasi yang mungkin hilang di sela lagu.
+    })
+  }
+
+  private keeperPause(): void {
+    window.clearTimeout(this.keeperTimer)
+    this.keeper?.pause()
+  }
+
+  /** Penjaga dibiarkan menyala sebentar (lagu berikutnya sedang dimuat), lalu dimatikan jika tak ada pemutaran baru. */
+  private keeperLinger(): void {
+    window.clearTimeout(this.keeperTimer)
+    if (!this.keeper) return
+    this.keeperTimer = window.setTimeout(() => this.keeper?.pause(), KEEPER_LINGER_MS)
   }
 
   private element(): HTMLAudioElement {
@@ -424,14 +490,8 @@ class AudioEngine {
    * agar crossfade nanti (tanpa gestur) boleh memutarnya.
    */
   prime(): void {
-    this.element()
-    // Android/Chrome menghapus notifikasi media saat elemen audio selesai memutar lagu dan tidak
-    // memunculkannya lagi walau elemen yang sama dipakai untuk lagu berikutnya. Elemen baru dianggap
-    // pemutar baru, jadi notifikasi dibuat ulang. Hanya di Android: iOS Safari mewajibkan setiap elemen
-    // dibuka kuncinya lewat gestur, sehingga elemen baru di tengah putar-otomatis akan diblokir.
-    if (this.activeEnded && IS_ANDROID) this.replaceActiveElement()
-    this.activeEnded = false
-    const audio = this.audio as HTMLAudioElement
+    const audio = this.element()
+    this.keeperPlay()
     this.resetFades()
     this.activeSource = null
     audio.src = SILENT_SRC
@@ -446,23 +506,10 @@ class AudioEngine {
     }
   }
 
-  /** Mengganti elemen aktif dengan elemen baru; elemen lama dilepas sepenuhnya. */
-  private replaceActiveElement(): void {
-    const old = this.audio
-    this.audio = this.createElement()
-    this.applyVolume(this.audio)
-    if (!old) return
-    old.pause()
-    for (const type of EVENT_TYPES) old.removeEventListener(type, this.handleDomEvent)
-    old.removeAttribute('src')
-    old.load()
-    this.elementGain.delete(old)
-  }
-
   /** Memuat dan memutar URL. Resolve = play() diterima; status "playing" tetap menunggu event. */
   async load(url: string): Promise<void> {
     const audio = this.element()
-    this.activeEnded = false
+    this.keeperPlay()
     this.activeSource = url
     audio.src = url
     try {
@@ -476,6 +523,7 @@ class AudioEngine {
     if (!this.audio || this.activeSource === null) {
       throw new AudioEngineError('unknown', 'Tidak ada audio yang dimuat.')
     }
+    this.keeperPlay()
     try {
       await this.audio.play()
     } catch (error) {
@@ -487,6 +535,7 @@ class AudioEngine {
     // Jeda manual di tengah fade/crossfade: selesaikan dulu, lalu jeda; volume kembali penuh untuk lanjut.
     this.settleCrossfade()
     this.ramps = this.ramps.filter((item) => item.target !== 'master')
+    this.keeperPause()
     this.audio?.pause()
     this.masterGain = 1
     this.applyAllVolumes()
@@ -509,6 +558,7 @@ class AudioEngine {
   /** Menghentikan dan melepas sumber audio (koneksi unduhan ikut dilepas). */
   stop(): void {
     this.activeSource = null
+    this.keeperLinger()
     this.resetFades()
     const audio = this.audio
     if (!audio) return
@@ -528,6 +578,8 @@ class AudioEngine {
     this.audio = null
     this.standby = null
     this.standbyUnlocked = false
+    this.keeperPause()
+    this.keeper = null
   }
 }
 
